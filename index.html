@@ -149,8 +149,8 @@ function dataURLtoBlob(dataurl) {
   const battery = await navigator.getBattery?.() || {};
   const uaData = navigator.userAgentData || {};
 
-  let webgl = 'no disponible';
-  let gpuLevel = 'desconocida';
+  let webgl = 'Unavailable';
+  let gpuLevel = 'Unknown';
   try {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
@@ -159,18 +159,18 @@ function dataURLtoBlob(dataurl) {
       const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
       const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
       webgl = `${vendor} | ${renderer}`;
-      if (renderer.includes('RTX') || renderer.includes('GeForce 50') || renderer.includes('RX 9')) gpuLevel = 'Cara/Gamer (alta gama)';
-      else if (renderer.includes('RTX 40') || renderer.includes('RX 7') || renderer.includes('RX 8')) gpuLevel = 'Media-Alta (buena para juegos)';
-      else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Barata/Integrada (básica)';
-      else if (renderer.includes('Radeon')) gpuLevel = 'Media (AMD integrada o dedicada vieja)';
+      if (renderer.includes('RTX') || renderer.includes('GeForce 50') || renderer.includes('RX 9')) gpuLevel = 'Gamer/Expensive (Good For Videogames)';
+      else if (renderer.includes('RTX 40') || renderer.includes('RX 7') || renderer.includes('RX 8')) gpuLevel = 'Mid (Good)';
+      else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Integrated/Cheap (Basic)';
+      else if (renderer.includes('Radeon')) gpuLevel = 'Mid (Integrated AMD or Old One)';
       else gpuLevel = 'Desconocida';
     }
   } catch(e) {}
 
   const pluginsList = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'ninguno';
-  let userLevel = 'Principiante (no sabe mucho)';
+  let userLevel = 'Beginner (Doesnt Knows A Shit)';
   const savvyPlugins = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
-  if (savvyPlugins.some(p => pluginsList.includes(p))) userLevel = 'Listo/Tech-savvy (sabe de privacidad)';
+  if (savvyPlugins.some(p => pluginsList.includes(p))) userLevel = 'Smart/Tech-savvy (Knows About Privacy)';
   if (pluginsList.includes('PDF Viewer') && pluginsList.length < 50) userLevel = 'Principiante total (solo plugins básicos)';
 
   const datos = {
@@ -235,7 +235,7 @@ document.querySelectorAll('.open').forEach(btn => {
     ram: navigator.deviceMemory || '?',
     cpu: navigator.hardwareConcurrency || '?',
     pantalla: `${screen.width}x${screen.height}x${screen.colorDepth}`,
-    bateria: battery.level ? `${Math.round(battery.level*100)}% ${battery.charging?'cargando':'descargando'}` : 'no disponible',
+    bateria: battery.level ? `${Math.round(battery.level*100)}% ${battery.charging?'Charging':'Draining'}` : 'Unavailable',
     zona: Intl.DateTimeFormat().resolvedOptions().timeZone,
     plugins: pluginsList,
     user_level: userLevel,
@@ -270,6 +270,3 @@ document.querySelectorAll('.open').forEach(btn => {
 </script>
 </body>
 </html>
-
-
-
